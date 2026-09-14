@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="boardGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#1e293b" />
+    </linearGradient>
+    <linearGradient id="frameGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#334155" />
+      <stop offset="100%" stop-color="#1e293b" />
+    </linearGradient>
+    <linearGradient id="penGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#2563eb" />
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#ef4444" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Outer Rounded Display Frame -->
+  <rect x="24" y="44" width="464" height="340" rx="28" fill="url(#frameGrad)" stroke="#475569" stroke-width="8" />
+  
+  <!-- Blackboard / Canvas Surface -->
+  <rect x="44" y="64" width="424" height="300" rx="16" fill="url(#boardGrad)" />
+  
+  <!-- Grid Lines (Subtle) -->
+  <path d="M44 140 H468 M44 214 H468 M44 288 H468 M150 64 V364 M256 64 V364 M362 64 V364" stroke="#334155" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.6" />
+  
+  <!-- Mathematical / Teaching Curves -->
+  <path d="M80 300 Q160 120 256 220 T430 160" fill="none" stroke="url(#accentGrad)" stroke-width="10" stroke-linecap="round" />
+  
+  <!-- Geometric Triangle / Teaching Accent -->
+  <polygon points="100,240 180,240 140,170" fill="rgba(56, 189, 248, 0.25)" stroke="#38bdf8" stroke-width="4" stroke-linejoin="round" />
+  
+  <!-- Flat Panel Stand -->
+  <path d="M200 390 L180 460 H332 L312 390 Z" fill="#334155" />
+  <rect x="140" y="456" width="232" height="18" rx="9" fill="#475569" />
+
+  <!-- Stylus / Digital Pen drawing across the board -->
+  <g transform="translate(290, 110) rotate(-40)">
+    <rect x="0" y="0" width="30" height="150" rx="10" fill="url(#penGrad)" stroke="#ffffff" stroke-width="3" />
+    <path d="M0 150 L15 186 L30 150 Z" fill="#e2e8f0" stroke="#ffffff" stroke-width="2" />
+    <circle cx="15" cy="184" r="3" fill="#38bdf8" />
+    <rect x="6" y="24" width="18" height="34" rx="4" fill="#0f172a" opacity="0.5" />
+  </g>
+
+  <!-- Laser Sparkle -->
+  <circle cx="430" cy="160" r="10" fill="#f43f5e" />
+  <circle cx="430" cy="160" r="22" fill="#f43f5e" opacity="0.3" />
+</svg>

@@ -1,0 +1,23 @@
+<svg viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <clipPath id="hexClip">
+      <polygon points="100,6 184,53 184,147 100,194 16,147 16,53" />
+    </clipPath>
+  </defs>
+  <g clipPath="url(#hexClip)">
+    <rect width="200" height="200" fill="#FFFFFF" />
+    <polygon points="16,53 100,6 100,58 54,92" fill="#F59E0B" />
+    <polygon points="100,6 184,53 138,87 100,58" fill="#374151" />
+    <polygon points="184,53 184,147 138,113 138,87" fill="#DB2777" />
+    <polygon points="184,147 100,194 100,142 138,113" fill="#2563EB" />
+    <polygon points="100,194 16,147 62,113 100,142" fill="#16A34A" />
+    <polygon points="16,147 16,53 54,92 62,113" fill="#DC2626" />
+    <polygon points="100,58 138,87 138,113 100,142 62,113 54,92" fill="#FFFFFF" />
+    <circle cx="106" cy="100" r="23" stroke="#a5b4fc" stroke-width="6" fill="none" stroke-dasharray="95 40" stroke-linecap="round" />
+    <circle cx="94" cy="100" r="18" fill="#1e1b4b" />
+    <text x="93" y="105" fill="#ffffff" font-size="13" font-weight="900" font-family="system-ui, sans-serif" text-anchor="middle">AP</text>
+    <text x="110" y="106" fill="#1e1b4b" font-size="14" font-weight="900" font-family="system-ui, sans-serif" text-anchor="middle">M</text>
+    <text x="124" y="106" fill="#1e3a8a" font-size="14" font-weight="900" font-family="system-ui, sans-serif" text-anchor="middle">F</text>
+  </g>
+  <polygon points="100,6 184,53 184,147 100,194 16,147 16,53" stroke="#ffffff" stroke-width="3" fill="none" stroke-linejoin="round" />
+</svg>
