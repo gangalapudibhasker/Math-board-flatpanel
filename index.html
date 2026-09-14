@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Math Whiteboard</title>
+    <meta name="description" content="Interactive Math whiteboard software for flat panels and classrooms with multi-page management, PDF cropping & annotations, geometric tools, and offline single-file HTML export." />
+    <meta property="og:title" content="Math Whiteboard" />
+    <meta property="og:description" content="Interactive Math whiteboard software for flat panels and classrooms with multi-page management, PDF cropping & annotations, geometric tools, and offline single-file HTML export." />
+    <meta property="og:type" content="website" />
+    <meta name="theme-color" content="#1e293b" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Math Whiteboard" />
+    <link rel="icon" type="image/svg+xml" href="/apmf-logo.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Caveat:wght@600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous">
+  </head>
+  <body class="bg-slate-900 text-slate-100 overflow-hidden select-none touch-none" style="background-color: #0f172a; color: #f8fafc; margin: 0; padding: 0;">
+    <div id="root">
+      <div id="loading-fallback" style="font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center;">
+        <div style="max-width: 520px; background: #1e293b; border: 1px solid #334155; border-radius: 16px; padding: 32px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);">
+          <div style="font-size: 44px; margin-bottom: 14px;">📐</div>
+          <h2 style="font-size: 22px; font-weight: 700; margin-bottom: 8px; color: #38bdf8;">Math Whiteboard</h2>
+          <p id="fallback-status" style="font-size: 14px; color: #94a3b8; line-height: 1.6; margin-bottom: 18px;">
+            Loading interactive math whiteboard for flat panel...
+          </p>
+          <div id="server-offline-card" style="display: none; background: #0f172a; border-radius: 12px; padding: 18px; text-align: left; font-size: 13px; border: 1px solid #334155; margin-bottom: 18px;">
+            <p style="color: #f59e0b; margin: 0 0 8px 0; font-weight: 600;">⚠️ Local Server Offline</p>
+            <p style="color: #cbd5e1; margin: 0 0 8px 0;">To start the whiteboard server on this computer:</p>
+            <p style="color: #94a3b8; margin: 0 0 6px 0;">• Double-click <code style="background:#1e293b; color:#38bdf8; padding: 2px 8px; border-radius: 4px; font-weight: bold;">Start-Math-Board.bat</code></p>
+            <p style="color: #94a3b8; margin: 0;">• Or run <code style="background:#1e293b; color:#38bdf8; padding: 2px 8px; border-radius: 4px; font-weight: bold;">npm run dev</code> in the project folder.</p>
+          </div>
+          <button id="retry-btn" onclick="window.location.reload()" style="background: #0284c7; color: white; border: none; padding: 10px 22px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px; display: none;">
+            🔄 Refresh & Connect
+          </button>
+        </div>
+      </div>
+    </div>
+    <script>
+      setTimeout(function() {
+        var offlineCard = document.getElementById('server-offline-card');
+        var retryBtn = document.getElementById('retry-btn');
+        var status = document.getElementById('fallback-status');
+        if (offlineCard && retryBtn && document.getElementById('loading-fallback')) {
+          offlineCard.style.display = 'block';
+          retryBtn.style.display = 'inline-block';
+          if (status) status.innerText = 'The local whiteboard development server is not running on port 3000.';
+        }
+      }, 2000);
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

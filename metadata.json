@@ -1,0 +1,6 @@
+{
+  "name": "Math Whiteboard",
+  "description": "Interactive Math whiteboard software for flat panels and classrooms with multi-page management, PDF cropping & annotations, geometric tools, and offline single-file HTML export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
