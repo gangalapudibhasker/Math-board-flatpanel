@@ -22,7 +22,8 @@ import {
   Eraser,
   Hand,
   Trash2,
-  RotateCcw
+  RotateCcw,
+  Move
 } from 'lucide-react';
 
 export type PdfToolType = 'pan' | 'pen' | 'highlighter' | 'eraser';
@@ -151,6 +152,25 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
 
   // Resizing width with drag
   const isResizingRef = useRef(false);
+
+  // Hide Tools state for PDF viewer
+  const [isPdfToolsHidden, setIsPdfToolsHidden] = useState<boolean>(false);
+  const isToolsHidden = isPdfToolsHidden || isCleanPresentationMode;
+
+  // Floating & Dragging state on Math Board
+  const [isFloating, setIsFloating] = useState<boolean>(false);
+  const [floatPos, setFloatPos] = useState<{ x: number; y: number; width: number; height: number }>(() => {
+    const w = typeof window !== 'undefined' ? Math.min(Math.max(480, window.innerWidth * 0.48), 850) : 600;
+    const h = typeof window !== 'undefined' ? Math.min(window.innerHeight - 70, 800) : 700;
+    const x = typeof window !== 'undefined' ? (dockSide === 'left' ? 20 : Math.max(20, window.innerWidth - w - 20)) : 40;
+    return { x, y: 60, width: w, height: h };
+  });
+
+  const isDraggingWindowRef = useRef(false);
+  const dragWindowStartRef = useRef({ mouseX: 0, mouseY: 0, posX: 0, posY: 0 });
+
+  const isFloatResizingRef = useRef(false);
+  const resizeFloatStartRef = useRef({ mouseX: 0, mouseY: 0, width: 0, height: 0 });
 
   const totalPages = pdfDoc?.numPages || 1;
 
@@ -445,6 +465,108 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
     window.addEventListener('pointerup', handlePointerUp);
   };
 
+  // Start dragging PDF window across Math Board
+  const handleDragPointerDown = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest('button, input, a, select, textarea')) return;
+    e.stopPropagation();
+
+    if (!isFloating) {
+      const containerRect = containerRef.current?.getBoundingClientRect();
+      const currentW = containerRect ? containerRect.width : Math.min(window.innerWidth * 0.48, 800);
+      const currentH = containerRect ? containerRect.height : window.innerHeight - 70;
+      const currentX = containerRect ? containerRect.left : (dockSide === 'left' ? 20 : window.innerWidth - currentW - 20);
+      const currentY = containerRect ? containerRect.top : 60;
+
+      setFloatPos({
+        x: currentX,
+        y: currentY,
+        width: currentW,
+        height: currentH,
+      });
+      setIsFloating(true);
+      dragWindowStartRef.current = {
+        mouseX: e.clientX,
+        mouseY: e.clientY,
+        posX: currentX,
+        posY: currentY,
+      };
+    } else {
+      dragWindowStartRef.current = {
+        mouseX: e.clientX,
+        mouseY: e.clientY,
+        posX: floatPos.x,
+        posY: floatPos.y,
+      };
+    }
+
+    isDraggingWindowRef.current = true;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const handleDragPointerMove = (e: React.PointerEvent) => {
+    if (!isDraggingWindowRef.current) return;
+    const dx = e.clientX - dragWindowStartRef.current.mouseX;
+    const dy = e.clientY - dragWindowStartRef.current.mouseY;
+
+    const maxX = Math.max(0, window.innerWidth - 120);
+    const maxY = Math.max(0, window.innerHeight - 80);
+    const nextX = Math.min(Math.max(-200, dragWindowStartRef.current.posX + dx), maxX);
+    const nextY = Math.min(Math.max(10, dragWindowStartRef.current.posY + dy), maxY);
+
+    setFloatPos(prev => ({
+      ...prev,
+      x: nextX,
+      y: nextY,
+    }));
+  };
+
+  const handleDragPointerUp = (e: React.PointerEvent) => {
+    if (isDraggingWindowRef.current) {
+      isDraggingWindowRef.current = false;
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {}
+    }
+  };
+
+  // Bottom-right corner resize for floating PDF window
+  const handleFloatResizeStart = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    isFloatResizingRef.current = true;
+    resizeFloatStartRef.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      width: floatPos.width,
+      height: floatPos.height,
+    };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const handleFloatResizeMove = (e: React.PointerEvent) => {
+    if (!isFloatResizingRef.current) return;
+    const dw = e.clientX - resizeFloatStartRef.current.mouseX;
+    const dh = e.clientY - resizeFloatStartRef.current.mouseY;
+    const minW = 340;
+    const minH = 260;
+    const maxW = window.innerWidth - 20;
+    const maxH = window.innerHeight - 20;
+
+    setFloatPos(prev => ({
+      ...prev,
+      width: Math.min(Math.max(minW, resizeFloatStartRef.current.width + dw), maxW),
+      height: Math.min(Math.max(minH, resizeFloatStartRef.current.height + dh), maxH),
+    }));
+  };
+
+  const handleFloatResizeUp = (e: React.PointerEvent) => {
+    if (isFloatResizingRef.current) {
+      isFloatResizingRef.current = false;
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {}
+    }
+  };
+
   // Crop / Snippet selection interactions
   const handlePointerDownCrop = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!isSnipMode || !canvasRef.current) return;
@@ -612,10 +734,23 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
   return (
     <div
       ref={containerRef}
-      className={`fixed top-14 bottom-0 z-20 flex flex-col bg-slate-925 border-slate-750 shadow-2xl transition-[width] duration-150 select-none text-slate-100 ${
-        dockSide === 'left' ? 'left-0 border-r-2' : 'right-0 border-l-2'
+      className={`fixed z-25 flex flex-col bg-slate-925 border-slate-750 shadow-2xl transition-[width,height] select-none text-slate-100 ${
+        isFloating
+          ? 'border-2 rounded-2xl overflow-hidden backdrop-blur-md ring-1 ring-white/10'
+          : `top-14 bottom-0 ${dockSide === 'left' ? 'left-0 border-r-2' : 'right-0 border-l-2'}`
       }`}
-      style={{ width: `${panelWidthPercent}%` }}
+      style={
+        isFloating
+          ? {
+              left: `${floatPos.x}px`,
+              top: `${floatPos.y}px`,
+              width: `${floatPos.width}px`,
+              height: `${floatPos.height}px`,
+            }
+          : {
+              width: `${panelWidthPercent}%`,
+            }
+      }
     >
       {/* Hidden file input for opening a different PDF */}
       <input
@@ -632,16 +767,24 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
         }}
       />
 
-      {/* Top Header Bar */}
-      <div className="h-12 bg-slate-900/95 border-b border-slate-800 px-3 flex items-center justify-between gap-2 shrink-0 backdrop-blur-md">
+      {/* Top Header Bar (Draggable across board) */}
+      <div 
+        onPointerDown={handleDragPointerDown}
+        onPointerMove={handleDragPointerMove}
+        onPointerUp={handleDragPointerUp}
+        onPointerCancel={handleDragPointerUp}
+        className={`h-12 bg-slate-900/95 border-b border-slate-800 px-3 flex items-center justify-between gap-2 shrink-0 backdrop-blur-md select-none ${
+          isFloating ? 'cursor-move' : ''
+        }`}
+      >
         {/* Left: Document Badge & Switch */}
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0 pointer-events-auto">
           <div className="p-1.5 rounded-lg bg-rose-500/20 text-rose-400 shrink-0">
             <FileText className="w-4 h-4" />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
-              <h2 className="text-xs font-bold text-white truncate max-w-[140px] sm:max-w-[200px]" title={filename}>
+              <h2 className="text-xs font-bold text-white truncate max-w-[120px] sm:max-w-[170px]" title={filename}>
                 {filename || 'Classroom PDF'}
               </h2>
               <span className="text-[9px] bg-rose-950/80 text-rose-300 border border-rose-500/30 px-1.5 py-0.2 rounded font-semibold hidden md:inline">
@@ -664,44 +807,93 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
         </div>
 
         {/* Right: Window & Dock Actions */}
-        <div className="flex items-center gap-1 shrink-0">
-          {/* Quick preset width dropdown / buttons */}
-          <div className="hidden lg:flex items-center gap-0.5 bg-slate-800/90 p-0.5 rounded-lg border border-slate-750 text-[10px] font-bold text-slate-400">
-            {[35, 45, 55].map(pct => (
-              <button
-                key={pct}
-                onClick={() => onWidthChange(pct)}
-                className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
-                  panelWidthPercent === pct ? 'bg-sky-600 text-white font-bold' : 'hover:text-white'
-                }`}
-                title={`Set panel width to ${pct}%`}
-              >
-                {pct}%
-              </button>
-            ))}
-          </div>
-
-          {/* Toggle Dock Side (Left <-> Right) */}
+        <div className="flex items-center gap-1 shrink-0 pointer-events-auto">
+          {/* Drag on Board / Float Toggle Handle */}
           <button
-            onClick={onToggleDockSide}
-            className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition cursor-pointer"
-            title={dockSide === 'left' ? 'Dock to Right Side of Board' : 'Dock to Left Side of Board'}
+            type="button"
+            onClick={() => {
+              if (!isFloating) {
+                const containerRect = containerRef.current?.getBoundingClientRect();
+                const currentW = containerRect ? containerRect.width : Math.min(window.innerWidth * 0.48, 800);
+                const currentH = containerRect ? containerRect.height : window.innerHeight - 70;
+                const currentX = dockSide === 'left' ? 25 : Math.max(20, window.innerWidth - currentW - 25);
+                setFloatPos({
+                  x: currentX,
+                  y: 60,
+                  width: currentW,
+                  height: currentH,
+                });
+                setIsFloating(true);
+              } else {
+                setIsFloating(false);
+              }
+            }}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-semibold transition cursor-pointer ${
+              isFloating
+                ? 'bg-sky-600 border-sky-400 text-white shadow-xs'
+                : 'bg-slate-800 hover:bg-slate-750 border-slate-700 text-slate-300 hover:text-white'
+            }`}
+            title={isFloating ? "Dock PDF window to side panel" : "Drag PDF window freely anywhere across Math Board"}
           >
-            <ArrowLeftRight className="w-3.5 h-3.5" />
+            <Move className="w-3.5 h-3.5 text-sky-400" />
+            <span className="text-[11px] font-bold">{isFloating ? 'Dock' : 'Drag on Board'}</span>
           </button>
 
-          {/* Hide Tools / Clean Presentation Mode Toggle */}
-          {onTogglePresentationMode && (
+          {/* Hide / Show Tools option for PDF file */}
+          <button
+            type="button"
+            onClick={() => {
+              if (isCleanPresentationMode && onTogglePresentationMode) {
+                onTogglePresentationMode();
+              }
+              setIsPdfToolsHidden(prev => !prev);
+            }}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-semibold transition cursor-pointer ${
+              isToolsHidden
+                ? 'bg-amber-500/90 border-amber-400 text-slate-950 font-bold shadow-xs'
+                : 'bg-slate-800 hover:bg-slate-750 border-slate-700 text-slate-300 hover:text-white'
+            }`}
+            title={isToolsHidden ? "Show PDF Tools (Reveal page, zoom, and pen tools)" : "Hide PDF Tools (Maximize worksheet view for clean presentation)"}
+          >
+            {isToolsHidden ? (
+              <>
+                <Eye className="w-3.5 h-3.5 text-slate-950" />
+                <span className="text-[11px] font-bold">Show Tools</span>
+              </>
+            ) : (
+              <>
+                <EyeOff className="w-3.5 h-3.5 text-amber-400" />
+                <span className="text-[11px] font-bold hidden sm:inline">Hide Tools</span>
+              </>
+            )}
+          </button>
+
+          {/* Quick preset width dropdown / buttons (only when docked) */}
+          {!isFloating && (
+            <div className="hidden lg:flex items-center gap-0.5 bg-slate-800/90 p-0.5 rounded-lg border border-slate-750 text-[10px] font-bold text-slate-400">
+              {[35, 45, 55].map(pct => (
+                <button
+                  key={pct}
+                  onClick={() => onWidthChange(pct)}
+                  className={`px-1.5 py-0.5 rounded transition cursor-pointer ${
+                    panelWidthPercent === pct ? 'bg-sky-600 text-white font-bold' : 'hover:text-white'
+                  }`}
+                  title={`Set panel width to ${pct}%`}
+                >
+                  {pct}%
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Toggle Dock Side (Left <-> Right) (only when docked) */}
+          {!isFloating && (
             <button
-              onClick={onTogglePresentationMode}
-              className={`p-1.5 rounded-lg border transition cursor-pointer ${
-                isCleanPresentationMode
-                  ? 'bg-sky-600 border-sky-400 text-white shadow-xs'
-                  : 'hover:bg-slate-800 border-transparent text-slate-300 hover:text-white'
-              }`}
-              title={isCleanPresentationMode ? "Show all tools (Exit clean mode)" : "Hide all tools for clean full-screen worksheet view"}
+              onClick={onToggleDockSide}
+              className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300 hover:text-white transition cursor-pointer"
+              title={dockSide === 'left' ? 'Dock to Right Side of Board' : 'Dock to Left Side of Board'}
             >
-              {isCleanPresentationMode ? <Eye className="w-3.5 h-3.5 text-sky-200" /> : <EyeOff className="w-3.5 h-3.5" />}
+              <ArrowLeftRight className="w-3.5 h-3.5" />
             </button>
           )}
 
@@ -725,8 +917,11 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
         </div>
       </div>
 
-      {/* Secondary Controls Bar (Page Flipping, Zoom & Snipping) */}
-      <div className="h-11 bg-slate-850/90 border-b border-slate-750/80 px-3 flex items-center justify-between gap-2 shrink-0 text-xs">
+      {/* Secondary Controls Bar & Drawing Toolbar (Collapsible via Hide Tools) */}
+      {!isToolsHidden && (
+        <>
+          {/* Secondary Controls Bar (Page Flipping, Zoom & Snipping) */}
+          <div className="h-11 bg-slate-850/90 border-b border-slate-750/80 px-3 flex items-center justify-between gap-2 shrink-0 text-xs">
         {/* Page Flipping Controls */}
         <div className="flex items-center gap-1.5">
           <button
@@ -1004,9 +1199,69 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
           </button>
         </div>
       </div>
+        </>
+      )}
 
       {/* Main PDF Page Display Area */}
       <div className="flex-1 relative overflow-auto bg-slate-950 flex items-center justify-center p-3">
+        {/* Floating Sleek Mini Quick-Bar when PDF Tools are hidden */}
+        {isToolsHidden && pdfDoc && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 p-1.5 bg-slate-900/95 backdrop-blur-md rounded-2xl border-2 border-sky-500/80 shadow-2xl text-xs select-none animate-fadeIn">
+            {/* Quick Page Nav */}
+            <div className="flex items-center gap-1 bg-slate-800/90 rounded-xl p-0.5 border border-slate-700">
+              <button
+                onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+                disabled={currentPage <= 1}
+                className="p-1 text-slate-300 hover:text-white rounded hover:bg-slate-700 disabled:opacity-30 cursor-pointer"
+                title="Previous Page"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+              <span className="px-2 font-mono text-[11px] font-bold text-sky-300">
+                {currentPage} / {totalPages}
+              </span>
+              <button
+                onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+                disabled={currentPage >= totalPages}
+                className="p-1 text-slate-300 hover:text-white rounded hover:bg-slate-700 disabled:opacity-30 cursor-pointer"
+                title="Next Page"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Quick Tool Toggle (Pen vs Scroll) */}
+            <button
+              type="button"
+              onClick={() => setPdfTool(pdfTool === 'pen' ? 'pan' : 'pen')}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold transition cursor-pointer ${
+                pdfTool === 'pen'
+                  ? 'bg-rose-600 text-white shadow-xs'
+                  : 'bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white border border-slate-700'
+              }`}
+              title={pdfTool === 'pen' ? "Pen Active (Tap to switch to Pan/Scroll)" : "Scroll Mode Active (Tap to switch to Pen)"}
+            >
+              {pdfTool === 'pen' ? <PenTool className="w-3.5 h-3.5" /> : <Hand className="w-3.5 h-3.5" />}
+              <span>{pdfTool === 'pen' ? 'Pen' : 'Scroll'}</span>
+            </button>
+
+            {/* Quick Show Tools */}
+            <button
+              type="button"
+              onClick={() => {
+                setIsPdfToolsHidden(false);
+                if (isCleanPresentationMode && onTogglePresentationMode) {
+                  onTogglePresentationMode();
+                }
+              }}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-xs transition cursor-pointer"
+              title="Show all PDF tools and settings"
+            >
+              <Eye className="w-3.5 h-3.5" />
+              <span>Show Tools</span>
+            </button>
+          </div>
+        )}
         {/* If no PDF is loaded */}
         {!pdfDoc ? (
           <div className="flex flex-col items-center justify-center text-center p-6 max-w-sm space-y-4">
@@ -1124,16 +1379,29 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
         )}
       </div>
 
-      {/* Resizing Edge Handle (Draggable Divider) */}
-      <div
-        onPointerDown={handleResizeStart}
-        className={`absolute top-0 bottom-0 w-2.5 z-30 cursor-col-resize flex items-center justify-center group hover:bg-sky-500/20 transition-colors ${
-          dockSide === 'left' ? '-right-1.5' : '-left-1.5'
-        }`}
-        title="Drag left/right to resize PDF viewer width"
-      >
-        <div className="w-1 h-8 rounded-full bg-slate-600 group-hover:bg-sky-400 transition" />
-      </div>
+      {/* Resizing Edge Handle (Draggable Divider - only when docked) */}
+      {!isFloating && (
+        <div
+          onPointerDown={handleResizeStart}
+          className={`absolute top-0 bottom-0 w-2.5 z-30 cursor-col-resize flex items-center justify-center group hover:bg-sky-500/20 transition-colors ${
+            dockSide === 'left' ? '-right-1.5' : '-left-1.5'
+          }`}
+          title="Drag left/right to resize PDF viewer width"
+        >
+          <div className="w-1 h-8 rounded-full bg-slate-600 group-hover:bg-sky-400 transition" />
+        </div>
+      )}
+
+      {/* Floating Window Bottom-Right Corner Resize Handle */}
+      {isFloating && (
+        <div
+          onPointerDown={handleFloatResizeStart}
+          className="absolute bottom-0 right-0 w-5 h-5 cursor-nwse-resize z-40 flex items-end justify-end p-1 group select-none"
+          title="Drag to resize PDF window width & height"
+        >
+          <div className="w-3 h-3 border-r-2 border-b-2 border-slate-500 group-hover:border-sky-400 rounded-br-xs transition" />
+        </div>
+      )}
     </div>
   );
 };

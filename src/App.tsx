@@ -50,7 +50,8 @@ import {
   RotateCw, 
   PenTool, 
   Eraser, 
-  Trash2 
+  Trash2,
+  FileText
 } from 'lucide-react';
 
 const DEFAULT_DOC: BoardDocument = {
@@ -190,6 +191,10 @@ export default function App() {
   const [isFractionsModalOpen, setIsFractionsModalOpen] = useState<boolean>(false);
   const [isAutoShapeEnabled, setIsAutoShapeEnabled] = useState<boolean>(false);
   const [isCleanPresentationMode, setIsCleanPresentationMode] = useState<boolean>(false);
+
+  // Visual drag & drop feedback for PDF & Image files on Math Board
+  const [isBoardDragOver, setIsBoardDragOver] = useState<boolean>(false);
+  const dragCounterRef = useRef<number>(0);
 
   // Undo / Redo history stacks per page
   const [undoStack, setUndoStack] = useState<BoardElement[][]>([]);
@@ -836,6 +841,23 @@ export default function App() {
       {/* Main Canvas Workspace with Split Screen Support & Direct PDF Drag-Drop */}
       <main 
         className="flex-1 relative overflow-hidden flex flex-row"
+        onDragEnter={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dragCounterRef.current += 1;
+          if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+            setIsBoardDragOver(true);
+          }
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dragCounterRef.current -= 1;
+          if (dragCounterRef.current <= 0) {
+            dragCounterRef.current = 0;
+            setIsBoardDragOver(false);
+          }
+        }}
         onDragOver={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -843,6 +865,8 @@ export default function App() {
         onDrop={(e) => {
           e.preventDefault();
           e.stopPropagation();
+          dragCounterRef.current = 0;
+          setIsBoardDragOver(false);
           const file = e.dataTransfer.files?.[0];
           if (!file) return;
           if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
@@ -871,6 +895,17 @@ export default function App() {
           }
         }}
       >
+        {/* Full-Board Drag and Drop PDF / Image Indicator Overlay */}
+        {isBoardDragOver && (
+          <div className="absolute inset-0 z-50 pointer-events-none flex flex-col items-center justify-center bg-slate-950/85 backdrop-blur-sm border-4 border-dashed border-rose-500 rounded-3xl m-4 animate-in fade-in duration-150">
+            <div className="p-4 rounded-3xl bg-rose-500/20 border-2 border-rose-500/50 text-rose-400 mb-3 animate-bounce shadow-2xl">
+              <FileText className="w-16 h-16" />
+            </div>
+            <h2 className="text-2xl font-black text-white tracking-tight">Drop PDF Worksheet to Open on Board</h2>
+            <p className="text-sm font-semibold text-rose-300 mt-1">Release file to display and write on this PDF</p>
+          </div>
+        )}
+
         {/* Slides Thumbnails Drawer */}
         <ThumbnailsDrawer
           isOpen={showThumbnails}
