@@ -141,7 +141,7 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
   const [penColor, setPenColor] = useState<string>('#ef4444');
   const [penWidth, setPenWidth] = useState<number>(3);
   const [pageAnnotations, setPageAnnotations] = useState<Record<number, PdfStroke[]>>({});
-  const [isDrawing, setIsDrawing] = useState<boolean>(false);
+  const isDrawingRef = useRef<boolean>(false);
   const activeStrokePointsRef = useRef<PdfStrokePoint[]>([]);
 
   // Snipping / Cropping state
@@ -204,11 +204,16 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
     }
   }, [currentPage, pageAnnotations]);
 
+  const redrawAnnotationsRef = useRef(redrawAnnotations);
+  useEffect(() => {
+    redrawAnnotationsRef.current = redrawAnnotations;
+  }, [redrawAnnotations]);
+
   useEffect(() => {
     redrawAnnotations();
   }, [pageAnnotations, redrawAnnotations]);
 
-  // Render current PDF page onto canvas
+  // Render current PDF page onto canvas (ONLY runs when PDF doc, page, or zoom changes)
   const renderCurrentPage = useCallback(async () => {
     if (!pdfDoc || !canvasRef.current || currentPage < 1 || currentPage > totalPages) return;
     setIsRendering(true);
@@ -251,25 +256,13 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
         annotationCanvasRef.current.style.width = canvas.style.width;
         annotationCanvasRef.current.style.height = canvas.style.height;
       }
-      redrawAnnotations();
+      redrawAnnotationsRef.current?.();
     } catch (err) {
       console.error('Error rendering PDF page in single viewer:', err);
     } finally {
       setIsRendering(false);
     }
-  }, [pdfDoc, currentPage, zoomLevel, totalPages, redrawAnnotations]);
-
-  useEffect(() => {
-    if (annotationCanvasRef.current && canvasRef.current) {
-      if (annotationCanvasRef.current.width !== canvasRef.current.width || annotationCanvasRef.current.height !== canvasRef.current.height) {
-        annotationCanvasRef.current.width = canvasRef.current.width;
-        annotationCanvasRef.current.height = canvasRef.current.height;
-        annotationCanvasRef.current.style.width = canvasRef.current.style.width;
-        annotationCanvasRef.current.style.height = canvasRef.current.style.height;
-        redrawAnnotations();
-      }
-    }
-  }, [renderDimensions, redrawAnnotations]);
+  }, [pdfDoc, currentPage, zoomLevel, totalPages]);
 
   useEffect(() => {
     if (isOpen && !isMinimized && pdfDoc) {
@@ -295,11 +288,11 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
 
     if (pdfTool === 'eraser') {
       eraseStrokesNear(nx, ny, rect.width, rect.height);
-      setIsDrawing(true);
+      isDrawingRef.current = true;
       return;
     }
 
-    setIsDrawing(true);
+    isDrawingRef.current = true;
     activeStrokePointsRef.current = [{ nx, ny }];
 
     const ctx = annotationCanvasRef.current.getContext('2d');
@@ -318,7 +311,7 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
   };
 
   const handlePointerMoveAnnotation = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDrawing || pdfTool === 'pan' || isSnipMode || !annotationCanvasRef.current) return;
+    if (!isDrawingRef.current || pdfTool === 'pan' || isSnipMode || !annotationCanvasRef.current) return;
     e.preventDefault();
     e.stopPropagation();
 
@@ -360,8 +353,8 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
   };
 
   const handlePointerUpAnnotation = () => {
-    if (!isDrawing) return;
-    setIsDrawing(false);
+    if (!isDrawingRef.current) return;
+    isDrawingRef.current = false;
 
     if (pdfTool === 'eraser') return;
 
