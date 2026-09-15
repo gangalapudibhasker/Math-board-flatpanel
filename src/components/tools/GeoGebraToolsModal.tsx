@@ -465,6 +465,34 @@ export const CLASSIC_5_TOOLBOXES: ClassicToolSuite[] = [
   },
 ];
 
+const OFFICIAL_APP_URLS: Record<'geometry' | 'classic' | 'graphing' | '3d' | 'cas', { url: string; label: string; desc: string }> = {
+  geometry: {
+    url: 'https://www.geogebra.org/geometry',
+    label: 'Geometry (Clean Canvas)',
+    desc: 'Interactive geometry board with construction tools — No popup keypad',
+  },
+  classic: {
+    url: 'https://www.geogebra.org/classic',
+    label: 'Classic 5.0 Suite',
+    desc: 'Complete suite with 3D, CAS, Spreadsheet & Classic Algebra',
+  },
+  graphing: {
+    url: 'https://www.geogebra.org/graphing',
+    label: 'Graphing Calculator',
+    desc: 'Dynamic 2D function plotting, calculus curves & table of values',
+  },
+  '3d': {
+    url: 'https://www.geogebra.org/3d',
+    label: '3D Calculator',
+    desc: 'Interactive 3D surfaces, planes, spheres, polyhedra & rotation',
+  },
+  cas: {
+    url: 'https://www.geogebra.org/cas',
+    label: 'CAS Symbolic Math',
+    desc: 'Computer Algebra System for exact symbolic computation & equations',
+  },
+};
+
 interface GeoGebraToolsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -482,6 +510,8 @@ export const GeoGebraToolsModal: React.FC<GeoGebraToolsModalProps> = ({
 
   // Top Mode Switcher: Classic 5 Studio vs Official GeoGebra Classic Web Suite vs Concept Presets
   const [activeTab, setActiveTab] = useState<'studio' | 'official-suite' | 'presets'>('studio');
+  const [officialAppType, setOfficialAppType] = useState<'geometry' | 'classic' | 'graphing' | '3d' | 'cas'>('geometry');
+  const [officialReloadKey, setOfficialReloadKey] = useState<number>(0);
 
   // Active Tool & Toolboxes
   const [activeTool, setActiveTool] = useState<GeoGebraToolMode>('move');
@@ -2422,7 +2452,7 @@ export const GeoGebraToolsModal: React.FC<GeoGebraToolsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-1 sm:p-3 select-none animate-fadeIn">
-      <div className="w-full max-w-6xl bg-slate-900 border-2 border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[94vh] text-slate-100">
+      <div className="w-full max-w-[96vw] xl:max-w-7xl h-[92vh] max-h-[94vh] bg-slate-900 border-2 border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col text-slate-100">
         
         {/* Top Header Bar */}
         <div className="flex items-center justify-between px-4 py-2.5 bg-slate-850 border-b border-slate-750 shrink-0">
@@ -2470,16 +2500,19 @@ export const GeoGebraToolsModal: React.FC<GeoGebraToolsModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              onClick={handleInsertCanvasGraphic}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-900/40 transition active:scale-95"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Insert to Whiteboard</span>
-            </button>
+            {activeTab === 'studio' && (
+              <button
+                onClick={handleInsertCanvasGraphic}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-900/40 transition active:scale-95 cursor-pointer"
+                title="Insert current studio drawing onto the whiteboard"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Insert to Whiteboard</span>
+              </button>
+            )}
             <button
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition"
+              className="p-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -2798,30 +2831,68 @@ export const GeoGebraToolsModal: React.FC<GeoGebraToolsModalProps> = ({
           </div>
         )}
 
-        {/* View 2: Official GeoGebra Classic 5.0 Web Suite Embed */}
+        {/* View 2: Official GeoGebra Web Suite Embed */}
         {activeTab === 'official-suite' && (
           <div className="flex-1 flex flex-col min-h-0 bg-slate-950 relative">
-            <div className="px-4 py-2 bg-slate-900 border-b border-slate-800 flex items-center justify-between text-xs">
-              <span className="text-slate-300">
-                Running official GeoGebra Classic Web Suite engine with complete 3D graphics, CAS, and Spreadsheets.
-              </span>
-              <a
-                href="https://www.geogebra.org/classic"
-                target="_blank"
-                rel="noreferrer"
-                className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-semibold"
-              >
-                <span>Open in New Tab</span>
-                <Globe className="w-3.5 h-3.5" />
-              </a>
+            <div className="px-3.5 py-2 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0 text-xs">
+              <div className="flex items-center gap-1.5 overflow-x-auto">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1 hidden sm:inline">
+                  App:
+                </span>
+                {(Object.keys(OFFICIAL_APP_URLS) as Array<keyof typeof OFFICIAL_APP_URLS>).map(appKey => (
+                  <button
+                    key={appKey}
+                    onClick={() => setOfficialAppType(appKey)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer shrink-0 ${
+                      officialAppType === appKey
+                        ? 'bg-indigo-600 text-white shadow-xs font-bold'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800 bg-slate-950/70 border border-slate-800'
+                    }`}
+                    title={OFFICIAL_APP_URLS[appKey].desc}
+                  >
+                    {OFFICIAL_APP_URLS[appKey].label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0 ml-auto">
+                {/* Dismiss keypad hint */}
+                <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-950/60 border border-indigo-500/30 text-[11px] text-indigo-200">
+                  <HelpCircle className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                  <span>Tip: Click canvas or press <kbd className="px-1 py-0.5 rounded bg-slate-800 border border-slate-700 font-mono text-[10px] text-white">Esc</kbd> to hide keypad</span>
+                </div>
+
+                <button
+                  onClick={() => setOfficialReloadKey(k => k + 1)}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white text-xs font-medium border border-slate-700 transition cursor-pointer"
+                  title="Reload current GeoGebra engine"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reload</span>
+                </button>
+
+                <a
+                  href={OFFICIAL_APP_URLS[officialAppType].url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 hover:text-white text-xs font-medium border border-indigo-500/40 transition cursor-pointer"
+                  title="Open full page in a new browser tab"
+                >
+                  <span>Open in Tab</span>
+                  <Globe className="w-3.5 h-3.5" />
+                </a>
+              </div>
             </div>
 
-            <div className="flex-1 w-full h-full min-h-[500px]">
+            {/* GeoGebra Full-Height Iframe Viewport Container */}
+            <div className="flex-1 w-full min-h-0 relative bg-white overflow-hidden" style={{ minHeight: '500px' }}>
               <iframe
-                src="https://www.geogebra.org/classic"
-                title="GeoGebra Classic Web Suite"
-                className="w-full h-full border-none rounded-b-2xl"
-                allow="fullscreen; autoplay"
+                key={`${officialAppType}-${officialReloadKey}`}
+                src={OFFICIAL_APP_URLS[officialAppType].url}
+                title={`GeoGebra ${OFFICIAL_APP_URLS[officialAppType].label}`}
+                className="absolute inset-0 w-full h-full border-none"
+                style={{ width: '100%', height: '100%', border: 'none' }}
+                allow="fullscreen; autoplay; clipboard-write; encrypted-media; camera; microphone"
               />
             </div>
           </div>

@@ -65,6 +65,7 @@ interface TopBarProps {
   onClearPage: () => void;
   onToggleWidget: (key: keyof TeachingWidgetsState) => void;
   onOpenPdfModal: () => void;
+  isPdfViewerOpen?: boolean;
   onOpenSaveModal: () => void;
   onToggleThumbnails: () => void;
   showThumbnails: boolean;
@@ -98,6 +99,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onClearPage,
   onToggleWidget,
   onOpenPdfModal,
+  isPdfViewerOpen = false,
   onOpenSaveModal,
   onToggleThumbnails,
   showThumbnails,
@@ -444,14 +446,18 @@ export const TopBar: React.FC<TopBarProps> = ({
           </button>
         )}
 
-        {/* PDF & Cropped PDF Tool Button */}
+        {/* Insert PDF Document / Worksheet Button */}
         <button
           onClick={onOpenPdfModal}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white rounded-xl text-xs font-bold shadow-sm transition active:scale-95"
-          title="Open PDF Document or Crop Snippets to Teach"
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold shadow-md transition active:scale-95 border ${
+            isPdfViewerOpen
+              ? 'bg-gradient-to-r from-rose-600 to-indigo-600 text-white border-rose-400/50 shadow-rose-900/40 ring-1 ring-white/30'
+              : 'bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white border-sky-400/30 shadow-sky-900/30'
+          }`}
+          title="Open or View Single PDF Document (Worksheets, Textbooks, Lesson Notes) on Math Board"
         >
-          <FileText className="w-4 h-4" />
-          <span className="hidden sm:inline">PDF</span>
+          <FileText className="w-4 h-4 text-rose-200" />
+          <span className="font-bold">{isPdfViewerOpen ? 'PDF Open' : 'Insert PDF'}</span>
         </button>
 
         {/* Interactive Classroom Tools Dropdown */}
@@ -477,6 +483,21 @@ export const TopBar: React.FC<TopBarProps> = ({
               <div className="text-[10px] font-bold text-slate-400 px-2 py-1 uppercase tracking-wider">
                 Math & Classroom Widgets
               </div>
+              
+              {/* Insert PDF Option in Tools Menu */}
+              <button
+                onClick={() => {
+                  onOpenPdfModal();
+                  setShowToolsMenu(false);
+                }}
+                className="w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-xs font-semibold bg-sky-950/60 hover:bg-sky-900/90 text-sky-200 border border-sky-500/40 transition mb-1 cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-sky-400" />
+                  <span>Insert PDF / Worksheets</span>
+                </div>
+                <span className="text-[10px] bg-sky-500/40 px-1.5 py-0.5 rounded font-bold">Open</span>
+              </button>
               
               {/* Fractions Tool Trigger */}
               {onOpenFractionsModal && (

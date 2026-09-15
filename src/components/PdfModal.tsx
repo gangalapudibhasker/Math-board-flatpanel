@@ -20,6 +20,7 @@ import {
   renderPdfPageToCanvas, 
   cropPdfRegion, 
   generateSampleLessonPdf, 
+  renderAllPdfPages,
   PdfDocumentInfo 
 } from '../utils/pdf';
 
@@ -28,6 +29,9 @@ interface PdfModalProps {
   onClose: () => void;
   onInsertImage: (imageSrc: string, width: number, height: number, meta?: { isCroppedPdf: boolean; pdfName: string; pageNum: number }) => void;
   onInsertAsNewPage: (imageSrc: string, width: number, height: number, meta?: { isCroppedPdf: boolean; pdfName: string; pageNum: number }) => void;
+  onInsertAllPages?: (pages: Array<{ dataUrl: string; width: number; height: number; pageNum: number }>, pdfName: string) => void;
+  onOpenSinglePdf?: (pdfDoc: any, filename: string, currentPage: number) => void;
+  initialFile?: File | null;
 }
 
 interface CropBox {
@@ -42,6 +46,9 @@ export const PdfModal: React.FC<PdfModalProps> = ({
   onClose,
   onInsertImage,
   onInsertAsNewPage,
+  onInsertAllPages,
+  onOpenSinglePdf,
+  initialFile,
 }) => {
   const [pdfInfo, setPdfInfo] = useState<PdfDocumentInfo | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -51,17 +58,36 @@ export const PdfModal: React.FC<PdfModalProps> = ({
   const [cropBox, setCropBox] = useState<CropBox | null>(null);
   const [isDraggingCrop, setIsDraggingCrop] = useState<boolean>(false);
   const [processingCrop, setProcessingCrop] = useState<boolean>(false);
+  const [importingAll, setImportingAll] = useState<boolean>(false);
+  const [importProgress, setImportProgress] = useState<string | null>(null);
 
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const pdfCanvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load sample PDF automatically on first open if none loaded yet
+  // Load initial file or sample PDF
   useEffect(() => {
-    if (isOpen && !pdfInfo) {
+    if (isOpen && initialFile) {
+      loadFile(initialFile);
+    } else if (isOpen && !pdfInfo) {
       loadSample();
     }
-  }, [isOpen]);
+  }, [isOpen, initialFile]);
+
+  const loadFile = async (file: File) => {
+    setIsLoading(true);
+    try {
+      const info = await loadPdfDocument(file, file.name);
+      setPdfInfo(info);
+      setCurrentPage(1);
+      setCropBox(null);
+    } catch (err) {
+      console.error('Error loading PDF file:', err);
+      alert('Unable to load PDF. Please make sure the file is a valid PDF.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const loadSample = async () => {
     setIsLoading(true);
@@ -226,6 +252,36 @@ export const PdfModal: React.FC<PdfModalProps> = ({
     }
   };
 
+  const handleInsertAllPdfPages = async () => {
+    if (!pdfInfo) return;
+    setImportingAll(true);
+    setImportProgress(`Preparing ${pdfInfo.numPages} pages...`);
+    try {
+      const allPages = await renderAllPdfPages(pdfInfo.pdfDoc, 1.8, (curr, tot) => {
+        setImportProgress(`Rendering Page ${curr} of ${tot}...`);
+      });
+
+      if (onInsertAllPages) {
+        onInsertAllPages(allPages, pdfInfo.filename);
+      } else {
+        allPages.forEach(p => {
+          onInsertAsNewPage(p.dataUrl, p.width, p.height, {
+            isCroppedPdf: true,
+            pdfName: pdfInfo.filename,
+            pageNum: p.pageNum,
+          });
+        });
+      }
+      onClose();
+    } catch (err) {
+      console.error('Failed to import all PDF pages:', err);
+      alert('Could not render all PDF pages. Please try inserting individual pages.');
+    } finally {
+      setImportingAll(false);
+      setImportProgress(null);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -260,21 +316,35 @@ export const PdfModal: React.FC<PdfModalProps> = ({
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg transition"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg transition cursor-pointer"
             >
               <Upload className="w-4 h-4" />
-              Upload PDF
+              <span>Upload PDF</span>
             </button>
             <button
               onClick={loadSample}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-indigo-600/80 hover:bg-indigo-600 text-white rounded-lg transition"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-indigo-600/80 hover:bg-indigo-600 text-white rounded-lg transition cursor-pointer"
             >
               <Sparkles className="w-3.5 h-3.5" />
-              Load Sample Lesson
+              <span>Load Sample Lesson</span>
             </button>
+
+            {/* Show Single PDF on Math Board (Recommended) */}
+            {pdfInfo && onOpenSinglePdf && (
+              <button
+                disabled={processingCrop || importingAll}
+                onClick={() => onOpenSinglePdf(pdfInfo.pdfDoc, pdfInfo.filename, currentPage)}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold bg-gradient-to-r from-rose-600 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 text-white rounded-xl shadow-lg shadow-rose-900/30 transition active:scale-95 cursor-pointer disabled:opacity-50"
+                title="View this PDF as a single document right on your Math Board without splitting into multiple slides"
+              >
+                <FileText className="w-4 h-4 text-rose-200" />
+                <span>Show Single PDF on Math Board</span>
+              </button>
+            )}
+
             <button
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-700 transition ml-2"
+              className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-700 transition ml-1 cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -408,55 +478,97 @@ export const PdfModal: React.FC<PdfModalProps> = ({
 
         {/* Bottom Action Footer */}
         <div className="px-5 py-3.5 bg-slate-800/95 border-t border-slate-700 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="text-slate-400">
-            {hasValidCrop ? (
+          <div className="text-slate-300">
+            {importProgress ? (
+              <span className="text-sky-400 font-semibold flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
+                {importProgress}
+              </span>
+            ) : hasValidCrop ? (
               <span className="text-sky-300 font-medium flex items-center gap-1.5">
                 <Check className="w-4 h-4 text-emerald-400" />
-                Region selected! Choose an insertion option below:
+                Region selected ({Math.round(currentCropRect.width)}×{Math.round(currentCropRect.height)}px). Choose insertion option:
               </span>
             ) : (
-              <span>Or insert the whole page directly into your presentation slides</span>
+              <div className="flex items-center gap-2 text-slate-300">
+                <FileText className="w-4 h-4 text-sky-400" />
+                <span>
+                  <strong className="text-white">{pdfInfo?.filename || 'Classroom PDF'}</strong> • Page {currentPage} of {pdfInfo?.numPages || 1}
+                </span>
+              </div>
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {hasValidCrop ? (
               <>
                 <button
-                  disabled={processingCrop}
+                  disabled={processingCrop || importingAll}
                   onClick={() => handleInsertCrop(false)}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold shadow-md transition active:scale-95 disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold shadow transition active:scale-95 disabled:opacity-50 cursor-pointer"
+                  title="Insert cropped math snippet onto the currently open slide"
                 >
-                  <Crop className="w-4 h-4" />
+                  <Crop className="w-4 h-4 text-sky-400" />
                   <span>Insert Snippet on Current Slide</span>
                 </button>
                 <button
-                  disabled={processingCrop}
+                  disabled={processingCrop || importingAll}
                   onClick={() => handleInsertCrop(true)}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold shadow-md transition active:scale-95 disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white font-bold shadow-md transition active:scale-95 disabled:opacity-50 cursor-pointer"
+                  title="Create a new presentation slide with this cropped math snippet"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>Add Snippet as New Slide</span>
+                  <span>Insert Snippet as New Slide</span>
                 </button>
               </>
             ) : (
               <>
+                {/* 1. Primary Action: Open Single PDF on Board */}
+                {pdfInfo && onOpenSinglePdf && (
+                  <button
+                    disabled={processingCrop || importingAll || !pdfInfo}
+                    onClick={() => onOpenSinglePdf(pdfInfo.pdfDoc, pdfInfo.filename, currentPage)}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-rose-600 to-indigo-600 hover:from-rose-500 hover:to-indigo-500 text-white font-bold shadow-lg shadow-rose-900/40 transition active:scale-95 cursor-pointer disabled:opacity-50"
+                    title="Display the single PDF document directly on your Math Board with page turn controls"
+                  >
+                    <FileText className="w-4 h-4 text-rose-200" />
+                    <span>View Single PDF on Math Board</span>
+                  </button>
+                )}
+
+                {/* 2. Insert Page on Current Slide (Does not create new slide) */}
                 <button
-                  disabled={processingCrop || !pdfInfo}
+                  disabled={processingCrop || importingAll || !pdfInfo}
                   onClick={() => handleInsertEntirePage(false)}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 font-medium transition"
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold transition cursor-pointer disabled:opacity-50"
+                  title="Place this PDF page onto the currently open slide"
                 >
-                  <FileSpreadsheet className="w-4 h-4" />
-                  <span>Insert Page on Current Slide</span>
+                  <FileSpreadsheet className="w-4 h-4 text-slate-400" />
+                  <span>Insert on Current Slide</span>
                 </button>
+
+                {/* 3. Insert Page as New Slide */}
                 <button
-                  disabled={processingCrop || !pdfInfo}
+                  disabled={processingCrop || importingAll || !pdfInfo}
                   onClick={() => handleInsertEntirePage(true)}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold shadow transition"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white border border-slate-700 transition active:scale-95 cursor-pointer disabled:opacity-50 text-[11px]"
+                  title="Insert current PDF page as a new slide in Math Board"
                 >
-                  <Layers className="w-4 h-4" />
-                  <span>Insert Page as New Slide</span>
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>Insert Page {currentPage} as New Slide</span>
                 </button>
+
+                {/* 4. Split all pages (Clarified label) */}
+                {pdfInfo && pdfInfo.numPages > 1 && (
+                  <button
+                    disabled={processingCrop || importingAll || !pdfInfo}
+                    onClick={handleInsertAllPdfPages}
+                    className="flex items-center gap-1.5 px-2.5 py-2 rounded-xl bg-slate-850 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-750 text-[10px] font-medium transition active:scale-95 cursor-pointer disabled:opacity-50"
+                    title={`Split all ${pdfInfo.numPages} pages into separate slides`}
+                  >
+                    <span>Split into {pdfInfo.numPages} slides</span>
+                  </button>
+                )}
               </>
             )}
           </div>

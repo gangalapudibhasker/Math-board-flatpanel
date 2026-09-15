@@ -35,6 +35,9 @@ import { GeoGebraToolsModal } from './components/tools/GeoGebraToolsModal';
 import { TemplatesModal } from './components/tools/TemplatesModal';
 import { FractionsTool } from './components/tools/FractionsTool';
 import { GraphSheetPanel } from './components/tools/GraphSheetPanel';
+import { PdfViewerPanel } from './components/tools/PdfViewerPanel';
+import { loadPdfDocument, generateSampleLessonPdf } from './utils/pdf';
+import * as pdfjsLib from 'pdfjs-dist';
 import { APMFLogo } from './components/APMFLogo';
 import { saveBoardToStorage, getSavedBoardsList } from './utils/exporter';
 import { Columns2, Edit3 } from 'lucide-react';
@@ -152,8 +155,18 @@ export default function App() {
 
   // UI Modals & Drawers
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
+  const [droppedPdfFile, setDroppedPdfFile] = useState<File | null>(null);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
   const [showThumbnails, setShowThumbnails] = useState(false);
+
+  // Single PDF Document Viewer on Math Board
+  const [isPdfViewerOpen, setIsPdfViewerOpen] = useState<boolean>(false);
+  const [pdfViewerDoc, setPdfViewerDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
+  const [pdfViewerFilename, setPdfViewerFilename] = useState<string>('document.pdf');
+  const [pdfViewerCurrentPage, setPdfViewerCurrentPage] = useState<number>(1);
+  const [pdfViewerWidthPercent, setPdfViewerWidthPercent] = useState<number>(45);
+  const [pdfViewerDockSide, setPdfViewerDockSide] = useState<'left' | 'right'>('left');
+  const [isPdfViewerMinimized, setIsPdfViewerMinimized] = useState<boolean>(false);
 
   // Split Screen & Specialized Classroom Panes
   const [isSplitScreen, setIsSplitScreen] = useState<boolean>(false);
@@ -470,35 +483,31 @@ export default function App() {
     height: number,
     meta?: { isCroppedPdf: boolean; pdfName: string; pageNum: number }
   ) => {
-    const maxDim = 680;
-    let targetW = width;
-    let targetH = height;
-    if (targetW > maxDim || targetH > maxDim) {
-      const ratio = targetW / targetH;
-      if (ratio > 1) {
-        targetW = maxDim;
-        targetH = maxDim / ratio;
-      } else {
-        targetH = maxDim;
-        targetW = maxDim * ratio;
-      }
-    }
+    const isPortraitPage = height > width && height > 600;
+    const maxH = isPortraitPage ? 880 : 680;
+    const ratio = width / (height || 1);
+    const targetH = Math.min(height, maxH);
+    const targetW = targetH * ratio;
 
     const imageElement: ImageElement = {
       id: 'img_' + Date.now(),
       type: 'image',
-      x: 180,
-      y: 120,
+      x: isPortraitPage ? 80 : 180,
+      y: isPortraitPage ? 60 : 120,
       width: targetW,
       height: targetH,
       src: imageSrc,
-      aspectRatio: targetW / targetH,
+      aspectRatio: ratio,
       isCroppedPdf: meta?.isCroppedPdf,
       pdfOriginalName: meta?.pdfName,
       pdfPageNum: meta?.pageNum,
     };
     handleAddElement(imageElement);
     setActiveTool('select');
+    setToast({
+      id: Date.now(),
+      text: meta?.pageNum ? `Inserted PDF Page ${meta.pageNum} on current slide` : 'Inserted image onto slide',
+    });
   };
 
   // Insert Cropped Snippet or PDF as brand new slide
@@ -508,19 +517,11 @@ export default function App() {
     height: number,
     meta?: { isCroppedPdf: boolean; pdfName: string; pageNum: number }
   ) => {
-    const maxDim = 760;
-    let targetW = width;
-    let targetH = height;
-    if (targetW > maxDim || targetH > maxDim) {
-      const ratio = targetW / targetH;
-      if (ratio > 1) {
-        targetW = maxDim;
-        targetH = maxDim / ratio;
-      } else {
-        targetH = maxDim;
-        targetW = maxDim * ratio;
-      }
-    }
+    const isPortraitPage = height > width && height > 600;
+    const maxH = isPortraitPage ? 920 : 760;
+    const ratio = width / (height || 1);
+    const targetH = Math.min(height, maxH);
+    const targetW = targetH * ratio;
 
     const newPage: BoardPage = {
       id: 'page_' + Date.now(),
@@ -529,12 +530,12 @@ export default function App() {
         {
           id: 'img_' + Date.now(),
           type: 'image',
-          x: 160,
-          y: 90,
+          x: isPortraitPage ? 80 : 160,
+          y: isPortraitPage ? 60 : 90,
           width: targetW,
           height: targetH,
           src: imageSrc,
-          aspectRatio: targetW / targetH,
+          aspectRatio: ratio,
           isCroppedPdf: meta?.isCroppedPdf,
           pdfOriginalName: meta?.pdfName,
           pdfPageNum: meta?.pageNum,
@@ -548,6 +549,90 @@ export default function App() {
       activePageIndex: prev.pages.length,
     }));
     setActiveTool('pen');
+    setToast({
+      id: Date.now(),
+      text: meta?.pageNum ? `Inserted PDF Page ${meta.pageNum} into Math Board!` : 'Inserted into Math Board!',
+    });
+  };
+
+  // Insert All PDF Pages as sequential slides in Math Board
+  const handleInsertAllPages = (
+    pages: Array<{ dataUrl: string; width: number; height: number; pageNum: number }>,
+    pdfName: string
+  ) => {
+    if (!pages || pages.length === 0) return;
+
+    const newPages: BoardPage[] = pages.map((page, idx) => {
+      const isPortrait = page.height > page.width;
+      const targetH = isPortrait ? 920 : 680;
+      const ratio = page.width / (page.height || 1);
+      const targetW = targetH * ratio;
+
+      return {
+        id: 'page_' + (Date.now() + idx),
+        backgroundStyle: 'grid-dark',
+        elements: [
+          {
+            id: 'img_' + (Date.now() + idx),
+            type: 'image' as const,
+            x: isPortrait ? 80 : 160,
+            y: isPortrait ? 60 : 90,
+            width: targetW,
+            height: targetH,
+            src: page.dataUrl,
+            aspectRatio: ratio,
+            isCroppedPdf: true,
+            pdfOriginalName: pdfName,
+            pdfPageNum: page.pageNum,
+          },
+        ],
+      };
+    });
+
+    setDocumentState(prev => ({
+      ...prev,
+      pages: [...prev.pages, ...newPages],
+      activePageIndex: prev.pages.length,
+    }));
+
+    setActiveTool('pen');
+    setToast({
+      id: Date.now(),
+      text: `Inserted all ${pages.length} PDF pages into Math Board!`,
+    });
+  };
+
+  // Open Single PDF Document directly on Math Board (Keeps single presentation slide)
+  const handleOpenSinglePdf = (
+    doc: any,
+    filename: string,
+    page: number = 1
+  ) => {
+    setPdfViewerDoc(doc);
+    setPdfViewerFilename(filename);
+    setPdfViewerCurrentPage(page);
+    setIsPdfViewerOpen(true);
+    setIsPdfViewerMinimized(false);
+    setIsPdfModalOpen(false);
+    setToast({
+      id: Date.now(),
+      text: `Viewing "${filename}" as single PDF on Math Board!`,
+    });
+  };
+
+  const handleOpenPdfClick = () => {
+    if (pdfViewerDoc) {
+      if (!isPdfViewerOpen) {
+        setIsPdfViewerOpen(true);
+        setIsPdfViewerMinimized(false);
+      } else if (isPdfViewerMinimized) {
+        setIsPdfViewerMinimized(false);
+      } else {
+        setIsPdfModalOpen(true);
+      }
+    } else {
+      setIsPdfModalOpen(true);
+    }
   };
 
   // Add Sticky Note
@@ -705,7 +790,8 @@ export default function App() {
         onRedo={handleRedo}
         onClearPage={handleClearPage}
         onToggleWidget={handleToggleWidget}
-        onOpenPdfModal={() => setIsPdfModalOpen(true)}
+        onOpenPdfModal={handleOpenPdfClick}
+        isPdfViewerOpen={isPdfViewerOpen && !isPdfViewerMinimized}
         onOpenSaveModal={() => setIsSaveModalOpen(true)}
         onToggleThumbnails={() => setShowThumbnails(!showThumbnails)}
         showThumbnails={showThumbnails}
@@ -729,8 +815,44 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Canvas Workspace with Split Screen Support */}
-      <main className="flex-1 relative overflow-hidden flex flex-row">
+      {/* Main Canvas Workspace with Split Screen Support & Direct PDF Drag-Drop */}
+      <main 
+        className="flex-1 relative overflow-hidden flex flex-row"
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const file = e.dataTransfer.files?.[0];
+          if (!file) return;
+          if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+            loadPdfDocument(file, file.name)
+              .then(info => {
+                handleOpenSinglePdf(info.pdfDoc, info.filename, 1);
+              })
+              .catch(err => {
+                console.error('Failed to load dropped PDF directly:', err);
+                setDroppedPdfFile(file);
+                setIsPdfModalOpen(true);
+              });
+          } else if (file.type.startsWith('image/')) {
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+              const src = evt.target?.result as string;
+              if (src) {
+                const img = new Image();
+                img.onload = () => {
+                  handleInsertImage(src, img.naturalWidth, img.naturalHeight);
+                };
+                img.src = src;
+              }
+            };
+            reader.readAsDataURL(file);
+          }
+        }}
+      >
         {/* Slides Thumbnails Drawer */}
         <ThumbnailsDrawer
           isOpen={showThumbnails}
@@ -816,6 +938,74 @@ export default function App() {
           />
         )}
 
+        {/* Single PDF Document Viewer directly on Math Board */}
+        {isPdfViewerOpen && (
+          <PdfViewerPanel
+            isOpen={isPdfViewerOpen}
+            onClose={() => setIsPdfViewerOpen(false)}
+            pdfDoc={pdfViewerDoc}
+            filename={pdfViewerFilename}
+            currentPage={pdfViewerCurrentPage}
+            onPageChange={setPdfViewerCurrentPage}
+            panelWidthPercent={pdfViewerWidthPercent}
+            onWidthChange={setPdfViewerWidthPercent}
+            dockSide={pdfViewerDockSide}
+            onToggleDockSide={() => setPdfViewerDockSide(s => (s === 'left' ? 'right' : 'left'))}
+            isMinimized={isPdfViewerMinimized}
+            onToggleMinimize={() => setIsPdfViewerMinimized(m => !m)}
+            onInsertSnippetToBoard={(dataUrl, width, height, pageNum) => {
+              handleInsertImage(dataUrl, width, height, {
+                isCroppedPdf: true,
+                pdfName: pdfViewerFilename,
+                pageNum,
+              });
+              setToast({
+                id: Date.now(),
+                text: `Snippet from ${pdfViewerFilename} (P. ${pageNum}) added to current slide!`,
+              });
+            }}
+            onInsertPageToBoard={(dataUrl, width, height, pageNum) => {
+              handleInsertImage(dataUrl, width, height, {
+                isCroppedPdf: false,
+                pdfName: pdfViewerFilename,
+                pageNum,
+              });
+              setToast({
+                id: Date.now(),
+                text: `Page ${pageNum} copied onto current slide!`,
+              });
+            }}
+            onLoadNewPdf={(file) => {
+              loadPdfDocument(file, file.name).then(info => {
+                setPdfViewerDoc(info.pdfDoc);
+                setPdfViewerFilename(info.filename);
+                setPdfViewerCurrentPage(1);
+                setToast({
+                  id: Date.now(),
+                  text: `Loaded ${file.name} on Math Board!`,
+                });
+              }).catch(err => {
+                console.error('Failed to load new PDF:', err);
+              });
+            }}
+            onLoadSampleLesson={async () => {
+              try {
+                const samplePdfBytes = generateSampleLessonPdf();
+                const info = await loadPdfDocument(samplePdfBytes, 'Classroom_Worksheet_Lesson4.pdf');
+                setPdfViewerDoc(info.pdfDoc);
+                setPdfViewerFilename(info.filename);
+                setPdfViewerCurrentPage(1);
+                setToast({
+                  id: Date.now(),
+                  text: 'Loaded Sample Math Lesson on Math Board!',
+                });
+              } catch (err) {
+                console.error('Failed to load sample PDF:', err);
+              }
+            }}
+          />
+        )}
+
         {/* Interactive Classroom Teaching Widgets */}
         {widgets.ruler.active && (
           <RulerTool onClose={() => handleToggleWidget('ruler')} />
@@ -864,6 +1054,7 @@ export default function App() {
         onOpenGeoGebraModal={() => setIsGeoGebraModalOpen(true)}
         onOpenTemplatesModal={() => setIsTemplatesModalOpen(true)}
         onOpenFractionsModal={() => setIsFractionsModalOpen(true)}
+        onOpenPdfModal={handleOpenPdfClick}
         onClearScreen={handleClearPage}
         penSensitivity={penSensitivity}
         onChangePenSensitivity={handleUpdatePenSensitivity}
@@ -930,9 +1121,15 @@ export default function App() {
       {/* PDF & Cropped PDF Modal */}
       <PdfModal
         isOpen={isPdfModalOpen}
-        onClose={() => setIsPdfModalOpen(false)}
+        onClose={() => {
+          setIsPdfModalOpen(false);
+          setDroppedPdfFile(null);
+        }}
         onInsertImage={handleInsertImage}
         onInsertAsNewPage={handleInsertAsNewPage}
+        onInsertAllPages={handleInsertAllPages}
+        onOpenSinglePdf={handleOpenSinglePdf}
+        initialFile={droppedPdfFile}
       />
 
       {/* Save & Document Manager Modal */}

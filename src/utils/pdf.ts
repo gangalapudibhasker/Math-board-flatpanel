@@ -60,6 +60,25 @@ export async function renderPdfPageToDataUrl(
   return canvas.toDataURL('image/png');
 }
 
+export async function renderAllPdfPages(
+  pdfDoc: pdfjsLib.PDFDocumentProxy,
+  scale = 1.8,
+  onProgress?: (current: number, total: number) => void
+): Promise<Array<{ pageNum: number; dataUrl: string; width: number; height: number }>> {
+  const pages: Array<{ pageNum: number; dataUrl: string; width: number; height: number }> = [];
+  for (let i = 1; i <= pdfDoc.numPages; i++) {
+    if (onProgress) onProgress(i, pdfDoc.numPages);
+    const { canvas, width, height } = await renderPdfPageToCanvas(pdfDoc, i, scale);
+    pages.push({
+      pageNum: i,
+      dataUrl: canvas.toDataURL('image/png'),
+      width,
+      height,
+    });
+  }
+  return pages;
+}
+
 export async function cropPdfRegion(
   pdfDoc: pdfjsLib.PDFDocumentProxy,
   pageNum: number,

@@ -30,7 +30,8 @@ import {
   Trash2,
   Activity,
   Palette,
-  Check
+  Check,
+  FileText
 } from 'lucide-react';
 import { 
   ToolType, 
@@ -193,6 +194,7 @@ interface ToolPaletteProps {
   onOpenGeoGebraModal?: () => void;
   onOpenTemplatesModal?: () => void;
   onOpenFractionsModal?: () => void;
+  onOpenPdfModal?: () => void;
   onClearScreen?: () => void;
   isToolsHidden?: boolean;
   onToggleHideTools?: () => void;
@@ -221,6 +223,7 @@ export const ToolPalette: React.FC<ToolPaletteProps> = ({
   onOpenGeoGebraModal,
   onOpenTemplatesModal,
   onOpenFractionsModal,
+  onOpenPdfModal,
   onClearScreen,
   isToolsHidden: isToolsHiddenProp,
   onToggleHideTools,
@@ -916,6 +919,26 @@ export const ToolPalette: React.FC<ToolPaletteProps> = ({
                 title="Math Whiteboard Templates"
               >
                 <LayoutTemplate className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Insert PDF Worksheet / Document Button */}
+          {onOpenPdfModal && (
+            <div className="relative group flex items-center justify-center">
+              <div className="absolute -top-9.5 left-1/2 -translate-x-1/2 px-2.5 py-0.5 bg-slate-800 border border-slate-700/90 text-white text-[10px] font-semibold rounded-md shadow-2xl whitespace-nowrap pointer-events-none z-50 flex flex-col items-center">
+                <span>Insert PDF</span>
+                <div className="w-0 h-0 border-x-4 border-x-transparent border-t-4 border-t-slate-800 -mb-1.5" />
+              </div>
+
+              <button
+                type="button"
+                onClick={onOpenPdfModal}
+                className="p-2 rounded-xl text-rose-400 hover:bg-slate-800 hover:text-rose-300 transition active:scale-95 cursor-pointer flex items-center gap-1"
+                title="Insert PDF File or Worksheet into Math Board"
+              >
+                <FileText className="w-4 h-4" />
+                <span className="hidden xl:inline text-[11px] font-bold">PDF</span>
               </button>
             </div>
           )}

@@ -35,7 +35,14 @@ import {
   Zap, 
   Copy, 
   Maximize2,
-  Shapes
+  Shapes,
+  Edit3,
+  Type,
+  Layers,
+  ChevronsUp,
+  ChevronsDown,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
 import { detectGeometricShape } from '../utils/shapeDetection';
 import { drawSolid3D, SOLIDS_CATALOG } from '../utils/solids3d';
@@ -324,6 +331,7 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
+  const laserCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // Viewport transformation (Pan & Zoom)
   const [zoom, setZoom] = useState(1);
@@ -358,6 +366,8 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
   }, []);
 
   const [isSelectionBarCollapsed, setIsSelectionBarCollapsed] = useState<boolean>(false);
+  const [showHandleLayerMenu, setShowHandleLayerMenu] = useState<boolean>(false);
+  const [showLayersDrawer, setShowLayersDrawer] = useState<boolean>(false);
   const isMovingGroupRef = useRef(false);
   const moveStartWorldRef = useRef<{ x: number; y: number } | null>(null);
   const initialElementsRef = useRef<BoardElement[]>([]);
@@ -384,31 +394,38 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
   // In-place text editing
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
 
-  // Insert math symbol into active text or create new text element
+  // Insert math symbol into active text or create new clean glyph element
   useEffect(() => {
     if (!pendingMathSymbol) return;
     if (editingTextId) {
       const el = page.elements.find(e => e.id === editingTextId && e.type === 'text') as TextElement | undefined;
       if (el) {
-        const updated = page.elements.map(e => (e.id === el.id ? { ...e, text: el.text + pendingMathSymbol } : e));
+        const nextText = (el.text || '') + pendingMathSymbol;
+        const estWidth = Math.max(140, Math.ceil(nextText.length * el.fontSize * 0.75) + 30);
+        const updated = page.elements.map(e => (e.id === el.id ? { ...e, text: nextText, width: Math.max(e.width, estWidth) } : e));
         onUpdateElements(updated);
       }
     } else {
-      // Create new text element at center
+      // Create clean math symbol with small rectangular box (140×48) so user has room to add text beside it
+      const fontSize = 36;
+      const estWidth = Math.max(140, Math.ceil(pendingMathSymbol.length * fontSize * 0.75) + 30);
+      const estHeight = 48;
       const newText: TextElement = {
         id: 'txt_' + Date.now(),
         type: 'text',
-        x: (-pan.x + (containerRef.current?.clientWidth || window.innerWidth) / 2) / zoom - 50,
-        y: (-pan.y + (containerRef.current?.clientHeight || window.innerHeight) / 2) / zoom - 20,
-        width: 140,
-        height: 48,
+        x: (-pan.x + (containerRef.current?.clientWidth || window.innerWidth) / 2) / zoom - estWidth / 2,
+        y: (-pan.y + (containerRef.current?.clientHeight || window.innerHeight) / 2) / zoom - estHeight / 2,
+        width: estWidth,
+        height: estHeight,
         text: pendingMathSymbol,
-        fontSize: 32,
+        fontSize,
         color: activeColor,
         fontFamily: 'sans',
       };
       onAddElement(newText);
-      setSelectedId(newText.id);
+      // Select with small rectangular box (handles won't collide and user can tap to add text)
+      setSelectedIds([newText.id]);
+      setEditingTextId(null);
     }
     onClearPendingMathSymbol();
   }, [pendingMathSymbol]);
@@ -444,6 +461,17 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
       };
     }
     if ('x' in el && 'width' in el) {
+      if (el.type === 'text') {
+        const textLen = Math.max(1, (el.text || '').length);
+        const calcWidth = Math.max(140, el.width || 140, Math.ceil(textLen * (el.fontSize || 36) * 0.75) + 30);
+        const calcHeight = Math.max(48, el.height || 48, Math.ceil((el.fontSize || 36) * 1.25));
+        return {
+          x: el.x,
+          y: el.y,
+          width: calcWidth,
+          height: calcHeight,
+        };
+      }
       return {
         x: el.x,
         y: el.y,
@@ -697,53 +725,54 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
     ctx.restore();
   }, [page, pan, zoom, selectedIds, penSensitivity, getSelectionBounds, getElementBounds]);
 
-  // Laser Pointer Trail Animation Loop
+  // Laser Pointer Trail Animation Loop (runs on dedicated laserCanvasRef to never interfere with inking)
   useEffect(() => {
     const loop = () => {
-      const overlay = overlayCanvasRef.current;
-      if (!overlay) return;
-      const ctx = overlay.getContext('2d');
-      if (!ctx) return;
+      const laserCanvas = laserCanvasRef.current;
+      if (laserCanvas) {
+        const ctx = laserCanvas.getContext('2d');
+        if (ctx) {
+          ctx.clearRect(0, 0, laserCanvas.width, laserCanvas.height);
 
-      ctx.clearRect(0, 0, overlay.width, overlay.height);
+          if (laserTrailsRef.current.length > 0) {
+            const now = Date.now();
+            // Remove points older than 1.2 seconds
+            laserTrailsRef.current = laserTrailsRef.current.filter(p => now - p.timestamp < 1200);
 
-      if (laserTrailsRef.current.length > 0) {
-        const now = Date.now();
-        // Remove points older than 1.2 seconds
-        laserTrailsRef.current = laserTrailsRef.current.filter(p => now - p.timestamp < 1200);
+            if (laserTrailsRef.current.length > 1) {
+              ctx.save();
+              ctx.lineCap = 'round';
+              ctx.lineJoin = 'round';
 
-        if (laserTrailsRef.current.length > 1) {
-          ctx.save();
-          ctx.lineCap = 'round';
-          ctx.lineJoin = 'round';
+              for (let i = 1; i < laserTrailsRef.current.length; i++) {
+                const p1 = laserTrailsRef.current[i - 1];
+                const p2 = laserTrailsRef.current[i];
+                const age = now - p2.timestamp;
+                const alpha = Math.max(0, 1 - age / 1200);
 
-          for (let i = 1; i < laserTrailsRef.current.length; i++) {
-            const p1 = laserTrailsRef.current[i - 1];
-            const p2 = laserTrailsRef.current[i];
-            const age = now - p2.timestamp;
-            const alpha = Math.max(0, 1 - age / 1200);
+                ctx.beginPath();
+                ctx.moveTo(p1.x, p1.y);
+                ctx.lineTo(p2.x, p2.y);
+                ctx.strokeStyle = `rgba(244, 63, 94, ${alpha * 0.85})`;
+                ctx.lineWidth = (1 - age / 1200) * 12 + 2;
+                ctx.stroke();
+              }
 
-            ctx.beginPath();
-            ctx.moveTo(p1.x, p1.y);
-            ctx.lineTo(p2.x, p2.y);
-            ctx.strokeStyle = `rgba(244, 63, 94, ${alpha * 0.85})`;
-            ctx.lineWidth = (1 - age / 1200) * 12 + 2;
-            ctx.stroke();
+              // Bright Glowing Tip
+              const tip = laserTrailsRef.current[laserTrailsRef.current.length - 1];
+              ctx.fillStyle = '#ffffff';
+              ctx.beginPath();
+              ctx.arc(tip.x, tip.y, 5, 0, Math.PI * 2);
+              ctx.fill();
+
+              ctx.fillStyle = '#f43f5e';
+              ctx.beginPath();
+              ctx.arc(tip.x, tip.y, 10, 0, Math.PI * 2);
+              ctx.fill();
+
+              ctx.restore();
+            }
           }
-
-          // Bright Glowing Tip
-          const tip = laserTrailsRef.current[laserTrailsRef.current.length - 1];
-          ctx.fillStyle = '#ffffff';
-          ctx.beginPath();
-          ctx.arc(tip.x, tip.y, 5, 0, Math.PI * 2);
-          ctx.fill();
-
-          ctx.fillStyle = '#f43f5e';
-          ctx.beginPath();
-          ctx.arc(tip.x, tip.y, 10, 0, Math.PI * 2);
-          ctx.fill();
-
-          ctx.restore();
         }
       }
 
@@ -756,21 +785,41 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
     };
   }, []);
 
-  // Window resize handler
+  // Window & Container resize handler
   useEffect(() => {
     const handleResize = () => {
       if (!containerRef.current || !canvasRef.current || !overlayCanvasRef.current) return;
       const { clientWidth, clientHeight } = containerRef.current;
-      canvasRef.current.width = clientWidth;
-      canvasRef.current.height = clientHeight;
-      overlayCanvasRef.current.width = clientWidth;
-      overlayCanvasRef.current.height = clientHeight;
+      if (clientWidth === 0 || clientHeight === 0) return;
+
+      if (canvasRef.current.width !== clientWidth || canvasRef.current.height !== clientHeight) {
+        canvasRef.current.width = clientWidth;
+        canvasRef.current.height = clientHeight;
+      }
+      if (overlayCanvasRef.current.width !== clientWidth || overlayCanvasRef.current.height !== clientHeight) {
+        overlayCanvasRef.current.width = clientWidth;
+        overlayCanvasRef.current.height = clientHeight;
+      }
+      if (laserCanvasRef.current) {
+        if (laserCanvasRef.current.width !== clientWidth || laserCanvasRef.current.height !== clientHeight) {
+          laserCanvasRef.current.width = clientWidth;
+          laserCanvasRef.current.height = clientHeight;
+        }
+      }
       renderCanvas();
     };
 
     handleResize();
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+      ro = new ResizeObserver(() => handleResize());
+      ro.observe(containerRef.current);
+    }
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      if (ro) ro.disconnect();
+    };
   }, [renderCanvas]);
 
   useEffect(() => {
@@ -971,7 +1020,7 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
         fontFamily: 'sans',
       };
       onAddElement(newText);
-      setSelectedIds([newText.id]);
+      setSelectedIds([]);
       setEditingTextId(newText.id);
     }
   };
@@ -985,7 +1034,10 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
       return;
     }
 
-    if (activeTool === 'laser') {
+    const isPenEraser = e.pointerType === 'pen' && (e.buttons === 32 || (e.buttons & 2) === 2);
+    const effectiveTool = isPenEraser ? 'eraser' : activeTool;
+
+    if (effectiveTool === 'laser') {
       const rect = containerRef.current?.getBoundingClientRect();
       const lx = e.clientX - (rect ? rect.left : 0);
       const ly = e.clientY - (rect ? rect.top : 0);
@@ -1020,7 +1072,7 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
     }
 
     // Lasso drawing path and live preview
-    if (activeTool === 'lasso' && isLassoingRef.current) {
+    if (effectiveTool === 'lasso' && isLassoingRef.current) {
       lassoPathRef.current.push({ x, y });
       const overlay = overlayCanvasRef.current;
       if (overlay) {
@@ -1053,7 +1105,7 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
       return;
     }
 
-    if (activeTool === 'eraser' && isDrawingRef.current) {
+    if (effectiveTool === 'eraser' && isDrawingRef.current) {
       const remaining = page.elements.filter(el => {
         if (el.type === 'stroke') {
           return !el.points.some(p => Math.hypot(p.x - x, p.y - y) < (el.width || 4) + 16);
@@ -1066,7 +1118,7 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
       return;
     }
 
-    if ((activeTool === 'pen' || activeTool === 'highlighter') && isDrawingRef.current) {
+    if ((effectiveTool === 'pen' || effectiveTool === 'highlighter') && isDrawingRef.current) {
       // Collect coalesced hardware events for high-frequency flat panel stylus response
       const native = e.nativeEvent as any;
       const coalesced = (native && typeof native.getCoalescedEvents === 'function')
@@ -1101,9 +1153,9 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
             {
               points: currentStrokePoints.current,
               color: activeColor,
-              width: activeTool === 'highlighter' ? strokeWidth * 2.5 : strokeWidth,
-              opacity: activeTool === 'highlighter' ? 0.35 : 1,
-              isHighlighter: activeTool === 'highlighter',
+              width: effectiveTool === 'highlighter' ? strokeWidth * 2.5 : strokeWidth,
+              opacity: effectiveTool === 'highlighter' ? 0.35 : 1,
+              isHighlighter: effectiveTool === 'highlighter',
               nibStyle: penSensitivity?.nibStyle,
               profile: penSensitivity?.profile,
             },
@@ -1116,7 +1168,7 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
       return;
     }
 
-    if (activeTool === 'shape' && isDrawingRef.current && shapeStartRef.current) {
+    if (effectiveTool === 'shape' && isDrawingRef.current && shapeStartRef.current) {
       // Live Shape Preview on overlay for all 26 shapes
       const overlay = overlayCanvasRef.current;
       if (overlay) {
@@ -1165,6 +1217,17 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
       return;
     }
 
+    const isPenEraser = e.pointerType === 'pen' && (e.buttons === 32 || (e.buttons & 2) === 2);
+    const effectiveTool = isPenEraser ? 'eraser' : activeTool;
+
+    if (effectiveTool === 'eraser' && isDrawingRef.current) {
+      isDrawingRef.current = false;
+      try {
+        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {}
+      return;
+    }
+
     if (isMovingGroupRef.current) {
       isMovingGroupRef.current = false;
       moveStartWorldRef.current = null;
@@ -1174,7 +1237,7 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
       return;
     }
 
-    if (activeTool === 'lasso' && isLassoingRef.current) {
+    if (effectiveTool === 'lasso' && isLassoingRef.current) {
       isLassoingRef.current = false;
       const poly = lassoPathRef.current;
       lassoPathRef.current = [];
@@ -1219,7 +1282,7 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
       return;
     }
 
-    if ((activeTool === 'pen' || activeTool === 'highlighter') && isDrawingRef.current) {
+    if ((effectiveTool === 'pen' || effectiveTool === 'highlighter') && isDrawingRef.current) {
       isDrawingRef.current = false;
       try {
         (e.target as HTMLElement).releasePointerCapture(e.pointerId);
@@ -1230,7 +1293,7 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
 
       if (pts.length > 2) {
         let detected = null;
-        if (isAutoShapeEnabled && activeTool === 'pen') {
+        if (isAutoShapeEnabled && effectiveTool === 'pen') {
           detected = detectGeometricShape(pts, durationMs, 350);
         }
 
@@ -1256,8 +1319,8 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
             ctx?.clearRect(0, 0, overlay.width, overlay.height);
           }
         } else {
-          const effectiveBaseWidth = activeTool === 'highlighter' ? strokeWidth * 2.5 : strokeWidth;
-          const widths = activeTool === 'highlighter'
+          const effectiveBaseWidth = effectiveTool === 'highlighter' ? strokeWidth * 2.5 : strokeWidth;
+          const widths = effectiveTool === 'highlighter'
             ? undefined
             : calculateStrokeWidths(pts, effectiveBaseWidth, penSensitivity, false);
 
@@ -1267,8 +1330,8 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
             points: [...pts],
             color: activeColor,
             width: effectiveBaseWidth,
-            opacity: activeTool === 'highlighter' ? 0.4 : 1,
-            isHighlighter: activeTool === 'highlighter',
+            opacity: effectiveTool === 'highlighter' ? 0.4 : 1,
+            isHighlighter: effectiveTool === 'highlighter',
             widths,
             nibStyle: penSensitivity?.nibStyle,
             profile: penSensitivity?.profile,
@@ -1297,8 +1360,8 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
           onAddElement(newStroke);
         }
       } else if (pts.length > 0) {
-        const effectiveBaseWidth = activeTool === 'highlighter' ? strokeWidth * 2.5 : strokeWidth;
-        const widths = activeTool === 'highlighter'
+        const effectiveBaseWidth = effectiveTool === 'highlighter' ? strokeWidth * 2.5 : strokeWidth;
+        const widths = effectiveTool === 'highlighter'
           ? undefined
           : calculateStrokeWidths(pts, effectiveBaseWidth, penSensitivity, false);
 
@@ -1308,8 +1371,8 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
           points: [...pts],
           color: activeColor,
           width: effectiveBaseWidth,
-          opacity: activeTool === 'highlighter' ? 0.4 : 1,
-          isHighlighter: activeTool === 'highlighter',
+          opacity: effectiveTool === 'highlighter' ? 0.4 : 1,
+          isHighlighter: effectiveTool === 'highlighter',
           widths,
           nibStyle: penSensitivity?.nibStyle,
           profile: penSensitivity?.profile,
@@ -1339,7 +1402,7 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
       return;
     }
 
-    if (activeTool === 'shape' && isDrawingRef.current && shapeStartRef.current) {
+    if (effectiveTool === 'shape' && isDrawingRef.current && shapeStartRef.current) {
       isDrawingRef.current = false;
       const { x, y } = screenToWorld(e.clientX, e.clientY);
       const sx = shapeStartRef.current.x;
@@ -1431,6 +1494,85 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
     onUpdateElements([...page.elements, ...duplicatedEls]);
     setSelectedIds(newSelectedIds);
   }, [selectedIds, page.elements, getSelectionBounds, onUpdateElements]);
+
+  // Layer ordering functions for selected elements (Bring to Front, Send to Back, Bring Forward, Send Backward)
+  const bringToFront = useCallback(() => {
+    if (selectedIds.length === 0) return;
+    const nonSelected = page.elements.filter(e => !selectedIds.includes(e.id));
+    const selected = page.elements.filter(e => selectedIds.includes(e.id));
+    onUpdateElements([...nonSelected, ...selected]);
+  }, [page.elements, selectedIds, onUpdateElements]);
+
+  const sendToBack = useCallback(() => {
+    if (selectedIds.length === 0) return;
+    const nonSelected = page.elements.filter(e => !selectedIds.includes(e.id));
+    const selected = page.elements.filter(e => selectedIds.includes(e.id));
+    onUpdateElements([...selected, ...nonSelected]);
+  }, [page.elements, selectedIds, onUpdateElements]);
+
+  const bringForward = useCallback(() => {
+    if (selectedIds.length === 0) return;
+    const newElements = [...page.elements];
+    for (let i = newElements.length - 2; i >= 0; i--) {
+      if (selectedIds.includes(newElements[i].id) && !selectedIds.includes(newElements[i + 1].id)) {
+        const temp = newElements[i];
+        newElements[i] = newElements[i + 1];
+        newElements[i + 1] = temp;
+      }
+    }
+    onUpdateElements(newElements);
+  }, [page.elements, selectedIds, onUpdateElements]);
+
+  const sendBackward = useCallback(() => {
+    if (selectedIds.length === 0) return;
+    const newElements = [...page.elements];
+    for (let i = 1; i < newElements.length; i++) {
+      if (selectedIds.includes(newElements[i].id) && !selectedIds.includes(newElements[i - 1].id)) {
+        const temp = newElements[i];
+        newElements[i] = newElements[i - 1];
+        newElements[i - 1] = temp;
+      }
+    }
+    onUpdateElements(newElements);
+  }, [page.elements, selectedIds, onUpdateElements]);
+
+  // Specific single-element layer functions (for Layers Manager drawer)
+  const moveElementToTop = useCallback((id: string) => {
+    const el = page.elements.find(e => e.id === id);
+    if (!el) return;
+    onUpdateElements([...page.elements.filter(e => e.id !== id), el]);
+  }, [page.elements, onUpdateElements]);
+
+  const moveElementToBottom = useCallback((id: string) => {
+    const el = page.elements.find(e => e.id === id);
+    if (!el) return;
+    onUpdateElements([el, ...page.elements.filter(e => e.id !== id)]);
+  }, [page.elements, onUpdateElements]);
+
+  const moveElementUp = useCallback((id: string) => {
+    const idx = page.elements.findIndex(e => e.id === id);
+    if (idx < 0 || idx >= page.elements.length - 1) return;
+    const next = [...page.elements];
+    const temp = next[idx];
+    next[idx] = next[idx + 1];
+    next[idx + 1] = temp;
+    onUpdateElements(next);
+  }, [page.elements, onUpdateElements]);
+
+  const moveElementDown = useCallback((id: string) => {
+    const idx = page.elements.findIndex(e => e.id === id);
+    if (idx <= 0) return;
+    const next = [...page.elements];
+    const temp = next[idx];
+    next[idx] = next[idx - 1];
+    next[idx - 1] = temp;
+    onUpdateElements(next);
+  }, [page.elements, onUpdateElements]);
+
+  const deleteElementById = useCallback((id: string) => {
+    onUpdateElements(page.elements.filter(e => e.id !== id));
+    setSelectedIds(prev => prev.filter(i => i !== id));
+  }, [page.elements, onUpdateElements]);
 
   // Rotate selected elements around center of selection box
   const handleStartRotate = (e: React.PointerEvent) => {
@@ -1603,21 +1745,44 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
     window.addEventListener('pointerup', onUp);
   };
 
-  // Keyboard shortcut for Delete / Backspace when elements are selected
+  // Keyboard shortcuts for Delete and Layer ordering when elements are selected
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.length > 0) {
-        const activeEl = document.activeElement as HTMLElement | null;
-        if (activeEl && ['INPUT', 'TEXTAREA'].includes(activeEl.tagName)) {
-          return;
-        }
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (activeEl && ['INPUT', 'TEXTAREA'].includes(activeEl.tagName)) {
+        return;
+      }
+
+      if (selectedIds.length === 0) return;
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
         handleDeleteSelected();
+        return;
+      }
+
+      // Layer shortcuts: Ctrl+] (Forward), Ctrl+Shift+] (Front), Ctrl+[ (Backward), Ctrl+Shift+[ (Back)
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === ']') {
+          e.preventDefault();
+          if (e.shiftKey) {
+            bringToFront();
+          } else {
+            bringForward();
+          }
+        } else if (e.key === '[') {
+          e.preventDefault();
+          if (e.shiftKey) {
+            sendToBack();
+          } else {
+            sendBackward();
+          }
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIds, handleDeleteSelected]);
+  }, [selectedIds, handleDeleteSelected, bringToFront, bringForward, sendBackward, sendToBack]);
 
   return (
     <div
@@ -1631,7 +1796,7 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
         className="absolute inset-0 block pointer-events-none"
       />
 
-      {/* Interactive Overlay Canvas (Captures Pointers, Inking Preview & Laser Trail) */}
+      {/* Interactive Overlay Canvas (Captures Pointers, Inking Live Preview & Shape Preview) */}
       <canvas
         ref={overlayCanvasRef}
         onPointerDown={handlePointerDown}
@@ -1655,6 +1820,12 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
         }}
       />
 
+      {/* Dedicated Laser Pointer Trail Canvas (never interferes with inking preview) */}
+      <canvas
+        ref={laserCanvasRef}
+        className="absolute inset-0 block pointer-events-none z-15"
+      />
+
       {/* HTML Interactive Objects Layer (Text editing & Sticky notes) */}
       <div 
         className="absolute inset-0 pointer-events-none z-20"
@@ -1665,41 +1836,100 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
       >
         {page.elements.map(el => {
           if (el.type === 'text') {
+            const isEditing = editingTextId === el.id;
             const isSelected = selectedIds.includes(el.id);
+            const textLen = Math.max(1, (el.text || '').length);
+            const estWidth = Math.max(140, el.width || 140, Math.ceil(textLen * el.fontSize * 0.75) + 30);
+            const estHeight = Math.max(48, el.height || 48, Math.ceil(el.fontSize * 1.25));
+            const allowInteract = activeTool === 'select' || activeTool === 'text' || isEditing || isSelected;
+
             return (
               <div
                 key={el.id}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  setEditingTextId(el.id);
+                }}
+                onClick={(e) => {
+                  if (activeTool === 'select' || activeTool === 'text') {
+                    e.stopPropagation();
+                    if (isSelected) {
+                      setEditingTextId(el.id);
+                    } else {
+                      setSelectedIds([el.id]);
+                    }
+                  }
+                }}
                 style={{
                   left: `${el.x}px`,
                   top: `${el.y}px`,
-                  minWidth: `${el.width}px`,
+                  width: `${estWidth}px`,
+                  height: `${estHeight}px`,
                   transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
                   transformOrigin: 'center center',
+                  pointerEvents: allowInteract ? 'auto' : 'none',
                 }}
-                className={`absolute pointer-events-auto group ${
-                  isSelected ? 'ring-2 ring-sky-400 ring-offset-2' : ''
+                className={`absolute select-none transition-shadow ${
+                  isEditing ? 'z-40' : 'z-20'
                 }`}
               >
-                <input
-                  type="text"
-                  value={el.text}
-                  onChange={e => {
-                    const updated = page.elements.map(item =>
-                      item.id === el.id ? { ...item, text: e.target.value } : item
-                    );
-                    onUpdateElements(updated);
-                  }}
-                  onFocus={() => {
-                    setSelectedIds([el.id]);
-                    setEditingTextId(el.id);
-                  }}
-                  onBlur={() => setEditingTextId(null)}
-                  style={{
-                    fontSize: `${el.fontSize}px`,
-                    color: el.color,
-                  }}
-                  className="bg-transparent border-none outline-hidden font-sans font-semibold p-1 w-full"
-                />
+                {isEditing ? (
+                  <div className="flex items-center gap-2 w-full h-full bg-slate-900/95 border-2 border-sky-400 rounded-xl px-2.5 py-1 shadow-2xl backdrop-blur-md">
+                    <input
+                      type="text"
+                      autoFocus
+                      value={el.text}
+                      placeholder="Add text beside symbol..."
+                      onChange={e => {
+                        const newText = e.target.value;
+                        const newLen = Math.max(1, newText.length);
+                        const newW = Math.max(140, Math.ceil(newLen * el.fontSize * 0.75) + 30);
+                        const updated = page.elements.map(item =>
+                          item.id === el.id ? { ...item, text: newText, width: newW } : item
+                        );
+                        onUpdateElements(updated);
+                      }}
+                      onBlur={() => setEditingTextId(null)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === 'Escape') {
+                          setEditingTextId(null);
+                        }
+                      }}
+                      style={{
+                        fontSize: `${el.fontSize}px`,
+                        color: el.color || '#38bdf8',
+                        lineHeight: '1.2',
+                      }}
+                      className="bg-transparent border-none outline-none ring-0 shadow-none font-sans font-semibold p-0 m-0 w-full text-left"
+                    />
+                    <button
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        setEditingTextId(null);
+                      }}
+                      className="px-2 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 active:scale-95 text-white text-[11px] font-bold shrink-0 cursor-pointer shadow-md transition"
+                      title="Finish editing"
+                    >
+                      Done ✓
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      fontSize: `${el.fontSize}px`,
+                      color: el.color,
+                      lineHeight: '1.2',
+                    }}
+                    className="font-sans font-semibold p-0 m-0 w-full h-full flex items-center justify-start cursor-pointer select-none border-none outline-none bg-transparent whitespace-nowrap overflow-visible"
+                  >
+                    <span>{el.text}</span>
+                    {isSelected && (
+                      <span className="ml-2 text-[10px] text-sky-400/80 bg-sky-950/60 border border-sky-500/40 rounded px-1.5 py-0.5 pointer-events-none font-normal shrink-0">
+                        + Add text
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             );
           } else if (el.type === 'sticky') {
@@ -1857,7 +2087,7 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
       </div>
 
       {/* 4-Corner Selection Handles Box (Yellow Dashed Box, Telugu Badge, Blue Rotate, Red Delete, Purple Duplicate, Green Resize) */}
-      {selectedIds.length > 0 && (() => {
+      {selectedIds.length > 0 && !editingTextId && (() => {
         const bounds = getSelectionBounds();
         if (!bounds) return null;
 
@@ -1882,6 +2112,77 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
               className="absolute inset-0 cursor-move pointer-events-auto bg-amber-400/5 hover:bg-amber-400/10 transition-colors"
               title="Drag to move selected elements"
             />
+
+            {/* Top-Left Sky Blue Layer Handle */}
+            <div className="absolute -top-4 -left-4 pointer-events-auto">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowHandleLayerMenu(prev => !prev);
+                }}
+                className="w-8 h-8 rounded-full bg-sky-500 hover:bg-sky-600 active:scale-95 text-white shadow-lg flex items-center justify-center cursor-pointer border-2 border-white transition-transform"
+                title="Layer Order (Bring to Front, Send to Back)"
+              >
+                <Layers className="w-4 h-4 stroke-[2.5]" />
+              </button>
+
+              {showHandleLayerMenu && (
+                <div
+                  onPointerDown={e => e.stopPropagation()}
+                  className="absolute -top-36 -left-2 w-48 bg-slate-900/98 backdrop-blur-md border border-slate-700 rounded-xl shadow-2xl p-1.5 z-50 flex flex-col gap-1 text-xs select-none"
+                >
+                  <div className="text-[10px] font-bold text-slate-400 px-2 py-0.5 uppercase tracking-wider border-b border-slate-800 flex items-center justify-between">
+                    <span>Layer Order</span>
+                    <button
+                      onClick={() => setShowHandleLayerMenu(false)}
+                      className="text-slate-400 hover:text-white"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => {
+                      bringToFront();
+                      setShowHandleLayerMenu(false);
+                    }}
+                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-sky-600/30 text-sky-300 hover:text-white transition text-left cursor-pointer font-semibold"
+                  >
+                    <ChevronsUp className="w-4 h-4 text-sky-400 shrink-0" />
+                    <span>Bring to Front</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      bringForward();
+                      setShowHandleLayerMenu(false);
+                    }}
+                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-slate-200 hover:text-white transition text-left cursor-pointer font-medium"
+                  >
+                    <ChevronUp className="w-4 h-4 text-slate-400 shrink-0" />
+                    <span>Bring Forward</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      sendBackward();
+                      setShowHandleLayerMenu(false);
+                    }}
+                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-slate-200 hover:text-white transition text-left cursor-pointer font-medium"
+                  >
+                    <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                    <span>Send Backward</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      sendToBack();
+                      setShowHandleLayerMenu(false);
+                    }}
+                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg hover:bg-amber-600/30 text-amber-300 hover:text-white transition text-left cursor-pointer font-semibold"
+                  >
+                    <ChevronsDown className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>Send to Back</span>
+                  </button>
+                </div>
+              )}
+            </div>
 
             {/* Top-Center Blue Rotate Handle with Vertical Dashed Stem */}
             <div className="absolute -top-7 left-1/2 -translate-x-1/2 w-0 h-7 border-l-2 border-dashed border-blue-400 pointer-events-none" />
@@ -1930,10 +2231,12 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
         const isImage = selectedEl?.type === 'image';
         const isSticky = selectedEl?.type === 'sticky';
         const isShape = selectedEl?.type === 'shape';
+        const isText = selectedEl?.type === 'text';
         const imgEl = isImage ? (selectedEl as ImageElement) : null;
         const stickyEl = isSticky ? (selectedEl as StickyNoteElement) : null;
         const solid = isSolid ? (selectedEl as Solid3DElement) : null;
         const shapeEl = isShape ? (selectedEl as ShapeElement) : null;
+        const textEl = isText ? (selectedEl as TextElement) : null;
         const solidInfo = solid ? SOLIDS_CATALOG[solid.solidType] : null;
         const isCombo = !!solidInfo?.isCombination || solidInfo?.category === 'combination';
 
@@ -2048,6 +2351,55 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
               <EyeOff className="w-3.5 h-3.5 text-slate-400" />
               <span>Hide</span>
             </button>
+
+            <div className="h-4 w-px bg-slate-700 mx-1" />
+
+            {/* Universal Layer Stacking Controls (Front, Forward, Backward, Back) */}
+            <div className="flex items-center gap-1 bg-slate-800/90 border border-slate-700/80 px-2 py-1 rounded-xl">
+              <div className="flex items-center gap-1 text-slate-400 font-bold text-[10px] mr-1">
+                <Layers className="w-3.5 h-3.5 text-sky-400" />
+                <span>Layer:</span>
+              </div>
+              <button
+                onClick={bringToFront}
+                className="flex items-center gap-1 px-2 py-0.5 bg-sky-600/40 hover:bg-sky-600 text-sky-200 hover:text-white border border-sky-500/50 rounded text-[11px] font-bold transition active:scale-95 cursor-pointer shadow-xs"
+                title="Bring to Front (Place on top of all other elements) [Ctrl+Shift+]]"
+              >
+                <ChevronsUp className="w-3.5 h-3.5" />
+                <span>Front</span>
+              </button>
+              <button
+                onClick={bringForward}
+                className="flex items-center gap-0.5 px-1.5 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-200 hover:text-white rounded text-[11px] font-semibold transition active:scale-95 cursor-pointer"
+                title="Bring Forward (Move 1 layer up) [Ctrl+]]"
+              >
+                <ChevronUp className="w-3.5 h-3.5" />
+                <span>Forward</span>
+              </button>
+              <button
+                onClick={sendBackward}
+                className="flex items-center gap-0.5 px-1.5 py-0.5 bg-slate-700 hover:bg-slate-600 text-slate-200 hover:text-white rounded text-[11px] font-semibold transition active:scale-95 cursor-pointer"
+                title="Send Backward (Move 1 layer down) [Ctrl+[]"
+              >
+                <ChevronDown className="w-3.5 h-3.5" />
+                <span>Backward</span>
+              </button>
+              <button
+                onClick={sendToBack}
+                className="flex items-center gap-1 px-2 py-0.5 bg-amber-600/40 hover:bg-amber-600 text-amber-200 hover:text-white border border-amber-500/50 rounded text-[11px] font-bold transition active:scale-95 cursor-pointer shadow-xs"
+                title="Send to Back (Place behind all other elements) [Ctrl+Shift+[]"
+              >
+                <ChevronsDown className="w-3.5 h-3.5" />
+                <span>Back</span>
+              </button>
+              <button
+                onClick={() => setShowLayersDrawer(true)}
+                className="flex items-center gap-1 px-2 py-0.5 bg-indigo-600/30 hover:bg-indigo-600 text-indigo-200 hover:text-white border border-indigo-500/40 rounded text-[11px] font-semibold transition ml-0.5 cursor-pointer"
+                title="Open All Canvas Layers List"
+              >
+                <span>All Layers</span>
+              </button>
+            </div>
 
             {isSolid && solid && (
               <>
@@ -2512,6 +2864,69 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
               </>
             )}
 
+            {/* Text & Math Symbol Controls: Add Text / Edit, Size, and Color */}
+            {isText && textEl && (
+              <>
+                <div className="h-4 w-px bg-slate-700 mx-1" />
+                <button
+                  onClick={() => setEditingTextId(textEl.id)}
+                  className="flex items-center gap-1.5 px-3 py-1 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-lg text-xs transition active:scale-95 shadow cursor-pointer"
+                  title="Add text beside symbol or edit text"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span>Add Text / Edit</span>
+                </button>
+
+                {/* Font Size Controls */}
+                <div className="flex items-center gap-1 bg-slate-800 px-2 py-1 rounded-lg">
+                  <span className="text-[10px] text-slate-400 font-bold mr-0.5">Size:</span>
+                  <button
+                    onClick={() => {
+                      const nextSize = Math.max(16, (textEl.fontSize || 36) - 6);
+                      onUpdateElements(page.elements.map(e => e.id === textEl.id ? { ...e, fontSize: nextSize } : e));
+                    }}
+                    className="px-1.5 py-0.5 rounded text-[10px] font-bold text-slate-300 hover:text-white hover:bg-slate-700"
+                    title="Smaller Text"
+                  >
+                    A-
+                  </button>
+                  <span className="text-[11px] font-mono font-bold text-sky-400 px-1">{textEl.fontSize || 36}</span>
+                  <button
+                    onClick={() => {
+                      const nextSize = Math.min(72, (textEl.fontSize || 36) + 6);
+                      onUpdateElements(page.elements.map(e => e.id === textEl.id ? { ...e, fontSize: nextSize } : e));
+                    }}
+                    className="px-1.5 py-0.5 rounded text-[10px] font-bold text-slate-300 hover:text-white hover:bg-slate-700"
+                    title="Larger Text"
+                  >
+                    A+
+                  </button>
+                </div>
+
+                {/* Quick Color Switcher */}
+                <div className="flex items-center gap-1 bg-slate-800 px-2 py-1 rounded-lg">
+                  {[
+                    { color: '#ffffff', name: 'White' },
+                    { color: '#38bdf8', name: 'Sky Blue' },
+                    { color: '#f59e0b', name: 'Amber' },
+                    { color: '#10b981', name: 'Green' },
+                    { color: '#ef4444', name: 'Red' },
+                    { color: '#a855f7', name: 'Purple' },
+                  ].map(c => (
+                    <button
+                      key={c.color}
+                      onClick={() => onUpdateElements(page.elements.map(e => e.id === textEl.id ? { ...e, color: c.color } : e))}
+                      style={{ backgroundColor: c.color }}
+                      className={`w-3.5 h-3.5 rounded-full border transition-transform cursor-pointer ${
+                        textEl.color === c.color ? 'border-white scale-125 ring-1 ring-sky-400' : 'border-white/30 hover:scale-110'
+                      }`}
+                      title={c.name}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+
             <div className="h-4 w-px bg-slate-700 mx-1" />
 
             <button
@@ -2564,7 +2979,251 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
         >
           <RotateCcw className="w-3.5 h-3.5" />
         </button>
+        <div className="h-3.5 w-px bg-slate-700 mx-0.5" />
+        <button
+          onClick={() => setShowLayersDrawer(prev => !prev)}
+          className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+            showLayersDrawer
+              ? 'bg-sky-600 text-white shadow-md shadow-sky-900/40'
+              : 'text-slate-300 hover:text-white hover:bg-slate-800'
+          }`}
+          title="Toggle Canvas Layers Drawer"
+        >
+          <Layers className="w-3.5 h-3.5 text-sky-400" />
+          <span>Layers</span>
+          {page.elements.length > 0 && (
+            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-800 text-sky-300 font-mono border border-slate-700">
+              {page.elements.length}
+            </span>
+          )}
+        </button>
       </div>
+
+      {/* Slide-Out Canvas Layers Manager Drawer */}
+      {showLayersDrawer && (
+        <aside
+          aria-label="Canvas Layers"
+          className="fixed top-14 bottom-14 right-3 sm:right-4 z-40 w-84 max-w-[92vw] bg-slate-900/95 border border-slate-700/90 rounded-2xl shadow-2xl backdrop-blur-md flex flex-col overflow-hidden text-xs text-slate-200"
+        >
+          {/* Drawer Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-950/60">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-sky-500/20 text-sky-400 border border-sky-500/30">
+                <Layers className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="font-bold text-sm text-white flex items-center gap-1.5">
+                  <span>Layers Manager</span>
+                  <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full border border-slate-700 font-mono">
+                    {page.elements.length}
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-400">
+                  Top items appear above lower items
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowLayersDrawer(false)}
+              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition"
+              title="Close Layers Drawer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Quick Selected Stacking Order Bar */}
+          {selectedIds.length > 0 && (
+            <div className="px-3 py-2 bg-sky-950/30 border-b border-sky-500/20 flex items-center justify-between gap-1">
+              <span className="text-[11px] font-bold text-sky-300 truncate max-w-[120px]">
+                Selected ({selectedIds.length})
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={bringToFront}
+                  className="px-2 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded text-[10px] font-bold transition active:scale-95 cursor-pointer flex items-center gap-1"
+                  title="Bring Selected to Very Front"
+                >
+                  <ChevronsUp className="w-3 h-3" />
+                  <span>Front</span>
+                </button>
+                <button
+                  onClick={bringForward}
+                  className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[10px] font-medium transition active:scale-95 cursor-pointer"
+                  title="Bring Selected Forward 1 Layer"
+                >
+                  <ChevronUp className="w-3 h-3" />
+                </button>
+                <button
+                  onClick={sendBackward}
+                  className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[10px] font-medium transition active:scale-95 cursor-pointer"
+                  title="Send Selected Backward 1 Layer"
+                >
+                  <ChevronDown className="w-3 h-3" />
+                </button>
+                <button
+                  onClick={sendToBack}
+                  className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-[10px] font-bold transition active:scale-95 cursor-pointer flex items-center gap-1"
+                  title="Send Selected to Very Back"
+                >
+                  <ChevronsDown className="w-3 h-3" />
+                  <span>Back</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Elements List (Reverse order: top of list = topmost canvas element) */}
+          <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
+            {page.elements.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center p-6 text-center text-slate-500">
+                <Layers className="w-8 h-8 stroke-1 mb-2 text-slate-600" />
+                <p className="font-semibold text-xs text-slate-400">No objects on canvas</p>
+                <p className="text-[11px] mt-1 text-slate-500">Draw a shape, write text, or insert an image snippet to see layers.</p>
+              </div>
+            ) : (
+              [...page.elements]
+                .map((el, originalIndex) => ({ el, originalIndex }))
+                .reverse()
+                .map(({ el, originalIndex }) => {
+                  const isSelected = selectedIds.includes(el.id);
+                  const isTop = originalIndex === page.elements.length - 1;
+                  const isBottom = originalIndex === 0;
+
+                  return (
+                    <div
+                      key={el.id}
+                      onClick={() => setSelectedId(el.id)}
+                      className={`group flex items-center justify-between p-2 rounded-xl border transition cursor-pointer select-none ${
+                        isSelected
+                          ? 'bg-sky-950/50 border-sky-500 shadow-md ring-1 ring-sky-500/50'
+                          : 'bg-slate-950/40 border-slate-800/80 hover:bg-slate-800/50 hover:border-slate-700'
+                      }`}
+                    >
+                      {/* Left: Thumbnail/Icon & Name */}
+                      <div className="flex items-center gap-2 min-w-0 flex-1 mr-1">
+                        <span className="text-[9px] font-mono text-slate-500 w-4 text-center">
+                          {originalIndex + 1}
+                        </span>
+
+                        <div className="w-7 h-7 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-center shrink-0 overflow-hidden">
+                          {el.type === 'image' ? (
+                            el.src ? (
+                              <img src={el.src} alt="snippet" className="w-full h-full object-cover" />
+                            ) : (
+                              <Crop className="w-3.5 h-3.5 text-emerald-400" />
+                            )
+                          ) : el.type === 'shape' ? (
+                            <Shapes className="w-3.5 h-3.5 text-sky-400" />
+                          ) : el.type === 'solid3d' ? (
+                            <Box className="w-3.5 h-3.5 text-amber-400" />
+                          ) : el.type === 'text' ? (
+                            <Type className="w-3.5 h-3.5 text-purple-400" />
+                          ) : el.type === 'sticky' ? (
+                            <Sliders className="w-3.5 h-3.5 text-amber-300" />
+                          ) : (
+                            <Edit3 className="w-3.5 h-3.5 text-rose-400" />
+                          )}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-[11px] text-slate-200 truncate">
+                            {el.type === 'image'
+                              ? 'Image / Snippet'
+                              : el.type === 'shape'
+                              ? `Shape (${el.shapeType})`
+                              : el.type === 'solid3d'
+                              ? `3D ${SOLIDS_CATALOG[el.solidType]?.name || el.solidType}`
+                              : el.type === 'text'
+                              ? el.text || 'Empty Text'
+                              : el.type === 'sticky'
+                              ? el.text || 'Sticky Note'
+                              : `Pen Stroke (${el.points?.length || 0} pts)`}
+                          </div>
+                          <div className="text-[9px] text-slate-500 capitalize">
+                            {el.type}
+                            {isTop && ' • (Front)'}
+                            {isBottom && ' • (Back)'}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right: Layer Stacking Controls */}
+                      <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
+                        <button
+                          onClick={() => moveElementUp(el.id)}
+                          disabled={isTop}
+                          className={`p-1 rounded transition ${
+                            isTop
+                              ? 'text-slate-600 cursor-not-allowed'
+                              : 'text-slate-300 hover:text-white hover:bg-slate-700 active:scale-95'
+                          }`}
+                          title="Move Up 1 Layer"
+                        >
+                          <ArrowUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => moveElementDown(el.id)}
+                          disabled={isBottom}
+                          className={`p-1 rounded transition ${
+                            isBottom
+                              ? 'text-slate-600 cursor-not-allowed'
+                              : 'text-slate-300 hover:text-white hover:bg-slate-700 active:scale-95'
+                          }`}
+                          title="Move Down 1 Layer"
+                        >
+                          <ArrowDown className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => moveElementToTop(el.id)}
+                          disabled={isTop}
+                          className={`p-1 rounded transition ${
+                            isTop
+                              ? 'text-slate-600 cursor-not-allowed'
+                              : 'text-sky-400 hover:text-white hover:bg-sky-700/60 active:scale-95'
+                          }`}
+                          title="Bring to Very Front"
+                        >
+                          <ChevronsUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => moveElementToBottom(el.id)}
+                          disabled={isBottom}
+                          className={`p-1 rounded transition ${
+                            isBottom
+                              ? 'text-slate-600 cursor-not-allowed'
+                              : 'text-amber-400 hover:text-white hover:bg-amber-700/60 active:scale-95'
+                          }`}
+                          title="Send to Very Back"
+                        >
+                          <ChevronsDown className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => deleteElementById(el.id)}
+                          className="p-1 rounded text-slate-500 hover:text-rose-400 hover:bg-rose-950/40 transition"
+                          title="Delete element"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+            )}
+          </div>
+
+          {/* Drawer Footer Tip */}
+          <div className="px-3 py-2 border-t border-slate-800 bg-slate-950/60 text-[10px] text-slate-400 flex items-center justify-between">
+            <span>Shortcuts:</span>
+            <div className="flex items-center gap-1 font-mono text-[9px] text-slate-300">
+              <kbd className="px-1 py-0.5 bg-slate-800 rounded border border-slate-700">Ctrl+]</kbd>
+              <span>Up</span>
+              <kbd className="px-1 py-0.5 bg-slate-800 rounded border border-slate-700 ml-1">Ctrl+[</kbd>
+              <span>Down</span>
+            </div>
+          </div>
+        </aside>
+      )}
 
       {/* Interactive Crop Modal for On-Canvas Templates / Images */}
       {croppingImage && (
