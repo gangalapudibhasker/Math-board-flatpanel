@@ -427,15 +427,6 @@ export const TopBar: React.FC<TopBarProps> = ({
           <span className="hidden lg:inline">Graph Sheet</span>
         </button>
 
-        {/* GeoGebra Basic Math Tools Modal Trigger */}
-        <button
-          onClick={onOpenGeoGebraModal}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-indigo-950/70 hover:bg-indigo-900 border border-indigo-500/50 text-indigo-200 hover:text-white text-xs font-bold transition shadow-xs"
-          title="GeoGebra Classic 5.0 (Dynamic Geometry, Algebra & Full Tools)"
-        >
-          <Compass className="w-3.5 h-3.5 text-indigo-400" />
-          <span className="hidden lg:inline">GeoGebra</span>
-        </button>
 
         {/* Interactive Fractions Tool Modal Trigger */}
         {onOpenFractionsModal && (
