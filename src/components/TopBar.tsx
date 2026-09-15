@@ -450,19 +450,6 @@ export const TopBar: React.FC<TopBarProps> = ({
           </button>
         )}
 
-        {/* Insert PDF Document / Worksheet Button */}
-        <button
-          onClick={onOpenPdfModal}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold shadow-md transition active:scale-95 border ${
-            isPdfViewerOpen
-              ? 'bg-gradient-to-r from-rose-600 to-indigo-600 text-white border-rose-400/50 shadow-rose-900/40 ring-1 ring-white/30'
-              : 'bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white border-sky-400/30 shadow-sky-900/30'
-          }`}
-          title="Open or View Single PDF Document (Worksheets, Textbooks, Lesson Notes) on Math Board"
-        >
-          <FileText className="w-4 h-4 text-rose-200" />
-          <span className="font-bold">{isPdfViewerOpen ? 'PDF Open' : 'Insert PDF'}</span>
-        </button>
 
         {/* Interactive Classroom Tools Dropdown */}
         <div className="relative">

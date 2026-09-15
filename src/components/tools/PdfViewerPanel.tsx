@@ -205,6 +205,13 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
       canvas.style.width = `${viewport.width / dpr}px`;
       canvas.style.height = `${viewport.height / dpr}px`;
 
+      if (annotationCanvasRef.current) {
+        annotationCanvasRef.current.width = viewport.width;
+        annotationCanvasRef.current.height = viewport.height;
+        annotationCanvasRef.current.style.width = `${viewport.width / dpr}px`;
+        annotationCanvasRef.current.style.height = `${viewport.height / dpr}px`;
+      }
+
       setRenderDimensions({
         width: viewport.width / dpr,
         height: viewport.height / dpr,
@@ -231,6 +238,18 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
       setIsRendering(false);
     }
   }, [pdfDoc, currentPage, zoomLevel, totalPages, redrawAnnotations]);
+
+  useEffect(() => {
+    if (annotationCanvasRef.current && canvasRef.current) {
+      if (annotationCanvasRef.current.width !== canvasRef.current.width || annotationCanvasRef.current.height !== canvasRef.current.height) {
+        annotationCanvasRef.current.width = canvasRef.current.width;
+        annotationCanvasRef.current.height = canvasRef.current.height;
+        annotationCanvasRef.current.style.width = canvasRef.current.style.width;
+        annotationCanvasRef.current.style.height = canvasRef.current.style.height;
+        redrawAnnotations();
+      }
+    }
+  }, [renderDimensions, redrawAnnotations]);
 
   useEffect(() => {
     if (isOpen && !isMinimized && pdfDoc) {
