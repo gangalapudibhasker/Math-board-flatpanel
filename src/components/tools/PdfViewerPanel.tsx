@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
+import { jsPDF } from 'jspdf';
 import { 
   X, 
   Minus, 
@@ -23,7 +24,10 @@ import {
   Hand,
   Trash2,
   RotateCcw,
-  Move
+  Move,
+  Download,
+  Save,
+  Image as ImageIcon
 } from 'lucide-react';
 
 export type PdfToolType = 'pan' | 'pen' | 'highlighter' | 'eraser';
@@ -171,6 +175,11 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
 
   const isFloatResizingRef = useRef(false);
   const resizeFloatStartRef = useRef({ mouseX: 0, mouseY: 0, width: 0, height: 0 });
+
+  // Save / Download Options state
+  const [showDownloadMenu, setShowDownloadMenu] = useState<boolean>(false);
+  const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
+  const [exportProgress, setExportProgress] = useState<string>('');
 
   const totalPages = pdfDoc?.numPages || 1;
 
@@ -694,6 +703,132 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
     onInsertPageToBoard(dataUrl, renderDimensions.width, renderDimensions.height, currentPage);
   };
 
+  // Download Current Page with handwritten notes as PNG Image
+  const handleDownloadCurrentPagePng = () => {
+    if (!canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const compCanvas = document.createElement('canvas');
+    compCanvas.width = canvas.width;
+    compCanvas.height = canvas.height;
+    const ctx = compCanvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, compCanvas.width, compCanvas.height);
+    ctx.drawImage(canvas, 0, 0);
+    if (annotationCanvasRef.current) {
+      ctx.drawImage(annotationCanvasRef.current, 0, 0);
+    }
+
+    const dataUrl = compCanvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    const baseName = filename.replace(/\.pdf$/i, '') || 'worksheet';
+    a.download = `${baseName}_page_${currentPage}_notes.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  // Download Current Page with notes as single-page PDF
+  const handleDownloadCurrentPagePdf = () => {
+    if (!canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const compCanvas = document.createElement('canvas');
+    compCanvas.width = canvas.width;
+    compCanvas.height = canvas.height;
+    const ctx = compCanvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, compCanvas.width, compCanvas.height);
+    ctx.drawImage(canvas, 0, 0);
+    if (annotationCanvasRef.current) {
+      ctx.drawImage(annotationCanvasRef.current, 0, 0);
+    }
+
+    const imgData = compCanvas.toDataURL('image/jpeg', 0.95);
+    const isLandscape = compCanvas.width > compCanvas.height;
+    const pdf = new jsPDF({
+      orientation: isLandscape ? 'landscape' : 'portrait',
+      unit: 'px',
+      format: [compCanvas.width, compCanvas.height],
+    });
+    pdf.addImage(imgData, 'JPEG', 0, 0, compCanvas.width, compCanvas.height);
+    const baseName = filename.replace(/\.pdf$/i, '') || 'worksheet';
+    pdf.save(`${baseName}_page_${currentPage}_notes.pdf`);
+  };
+
+  // Download Complete Multi-Page PDF with notes on all pages
+  const handleDownloadAllPagesPdf = async () => {
+    if (!pdfDoc) return;
+    setIsExportingPdf(true);
+    setExportProgress(`Preparing 1 / ${totalPages}...`);
+
+    try {
+      const firstPage = await pdfDoc.getPage(1);
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const firstViewport = firstPage.getViewport({ scale: dpr });
+      const firstIsLandscape = firstViewport.width > firstViewport.height;
+
+      const pdf = new jsPDF({
+        orientation: firstIsLandscape ? 'landscape' : 'portrait',
+        unit: 'px',
+        format: [firstViewport.width, firstViewport.height],
+      });
+
+      for (let p = 1; p <= totalPages; p++) {
+        setExportProgress(`Rendering page ${p} of ${totalPages}...`);
+        const page = await pdfDoc.getPage(p);
+        const viewport = page.getViewport({ scale: dpr });
+        const isLandscape = viewport.width > viewport.height;
+
+        if (p > 1) {
+          pdf.addPage([viewport.width, viewport.height], isLandscape ? 'landscape' : 'portrait');
+        }
+
+        const pageCanvas = document.createElement('canvas');
+        pageCanvas.width = viewport.width;
+        pageCanvas.height = viewport.height;
+        const pageCtx = pageCanvas.getContext('2d');
+        if (pageCtx) {
+          pageCtx.fillStyle = '#ffffff';
+          pageCtx.fillRect(0, 0, viewport.width, viewport.height);
+
+          await page.render({
+            canvasContext: pageCtx,
+            viewport,
+          }).promise;
+
+          // Draw annotations on this page
+          const strokes = pageAnnotations[p] || [];
+          for (const stroke of strokes) {
+            drawSmoothPdfStroke(
+              pageCtx,
+              stroke.points,
+              stroke.color,
+              stroke.width * dpr,
+              stroke.tool === 'highlighter',
+              pageCanvas.width,
+              pageCanvas.height
+            );
+          }
+
+          const imgData = pageCanvas.toDataURL('image/jpeg', 0.95);
+          pdf.addImage(imgData, 'JPEG', 0, 0, viewport.width, viewport.height);
+        }
+      }
+
+      const baseName = filename.replace(/\.pdf$/i, '') || 'document';
+      pdf.save(`${baseName}_all_notes.pdf`);
+    } catch (err) {
+      console.error('Failed to export annotated PDF:', err);
+    } finally {
+      setIsExportingPdf(false);
+      setExportProgress('');
+    }
+  };
+
   if (!isOpen) return null;
 
   // Render minimized floating pill on the board edge
@@ -1045,6 +1180,94 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
             <Copy className="w-3 h-3 text-sky-400" />
             <span>Copy Page</span>
           </button>
+
+          {/* Save / Download Annotated PDF Options */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowDownloadMenu(prev => !prev)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition shadow-md cursor-pointer active:scale-95"
+              title="Save or Download this PDF with your written notes and solutions"
+            >
+              <Download className="w-3.5 h-3.5 stroke-[2.5]" />
+              <span>Save / Download</span>
+            </button>
+
+            {showDownloadMenu && (
+              <>
+                <div 
+                  className="fixed inset-0 z-40" 
+                  onClick={() => setShowDownloadMenu(false)} 
+                />
+                <div className="absolute right-0 top-9 z-50 w-72 bg-slate-900/98 border border-slate-700 rounded-2xl shadow-2xl p-2 flex flex-col gap-1 backdrop-blur-xl text-xs select-none animate-fadeIn">
+                  <div className="px-2.5 py-1.5 border-b border-slate-800 text-[11px] font-bold text-slate-400 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 text-emerald-400">
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Save & Download Options</span>
+                    </span>
+                    <span className="text-[10px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded font-mono">
+                      Page {currentPage}/{totalPages}
+                    </span>
+                  </div>
+
+                  {/* Option 1: Download Current Page as PNG Image */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDownloadMenu(false);
+                      handleDownloadCurrentPagePng();
+                    }}
+                    className="flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-slate-200 hover:bg-slate-800 hover:text-white transition cursor-pointer text-left group"
+                  >
+                    <div className="p-1.5 rounded-lg bg-sky-500/20 text-sky-400 group-hover:bg-sky-500/30 shrink-0">
+                      <ImageIcon className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-white text-xs">Download Current Page (PNG)</div>
+                      <div className="text-[10px] text-slate-400">High-resolution image with all your writings</div>
+                    </div>
+                  </button>
+
+                  {/* Option 2: Download Current Page as PDF */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDownloadMenu(false);
+                      handleDownloadCurrentPagePdf();
+                    }}
+                    className="flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-slate-200 hover:bg-slate-800 hover:text-white transition cursor-pointer text-left group"
+                  >
+                    <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 group-hover:bg-emerald-500/30 shrink-0">
+                      <FileText className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-white text-xs">Download Current Page (PDF)</div>
+                      <div className="text-[10px] text-slate-400">Single-page printable document with notes</div>
+                    </div>
+                  </button>
+
+                  {/* Option 3: Download Complete Multi-page PDF */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDownloadMenu(false);
+                      handleDownloadAllPagesPdf();
+                    }}
+                    disabled={isExportingPdf}
+                    className="flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-slate-200 hover:bg-slate-800 hover:text-white transition cursor-pointer text-left group disabled:opacity-50"
+                  >
+                    <div className="p-1.5 rounded-lg bg-rose-500/20 text-rose-400 group-hover:bg-rose-500/30 shrink-0">
+                      <Download className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-white text-xs">Download Complete PDF (.pdf)</div>
+                      <div className="text-[10px] text-slate-400">All {totalPages} pages combined with your notes</div>
+                    </div>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1238,6 +1461,17 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
               <span>{pdfTool === 'pen' ? 'Pen' : 'Scroll'}</span>
             </button>
 
+            {/* Quick Download / Save Button */}
+            <button
+              type="button"
+              onClick={handleDownloadCurrentPagePng}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-xs transition cursor-pointer"
+              title="Save current annotated page as PNG image to your computer"
+            >
+              <Download className="w-3.5 h-3.5 stroke-[2.5]" />
+              <span>Save</span>
+            </button>
+
             {/* Quick Show Tools */}
             <button
               type="button"
@@ -1253,6 +1487,19 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
               <Eye className="w-3.5 h-3.5" />
               <span>Show Tools</span>
             </button>
+          </div>
+        )}
+
+        {/* Multi-page Annotated PDF Export Progress Overlay */}
+        {isExportingPdf && (
+          <div className="absolute inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4 select-none animate-fadeIn">
+            <div className="px-5 py-3.5 rounded-2xl bg-slate-900 border-2 border-emerald-500/70 shadow-2xl flex items-center gap-3.5 text-xs text-white">
+              <div className="w-5 h-5 rounded-full border-2 border-emerald-400 border-t-transparent animate-spin shrink-0" />
+              <div>
+                <div className="font-bold text-emerald-400 text-sm">Generating Annotated PDF...</div>
+                <div className="text-[11px] text-slate-300 mt-0.5">{exportProgress}</div>
+              </div>
+            </div>
           </div>
         )}
         {/* If no PDF is loaded */}
