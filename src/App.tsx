@@ -40,7 +40,18 @@ import { loadPdfDocument, generateSampleLessonPdf } from './utils/pdf';
 import * as pdfjsLib from 'pdfjs-dist';
 import { APMFLogo } from './components/APMFLogo';
 import { saveBoardToStorage, getSavedBoardsList } from './utils/exporter';
-import { Columns2, Edit3 } from 'lucide-react';
+import { 
+  Columns2, 
+  Edit3, 
+  Eye, 
+  ChevronLeft, 
+  ChevronRight, 
+  RotateCcw, 
+  RotateCw, 
+  PenTool, 
+  Eraser, 
+  Trash2 
+} from 'lucide-react';
 
 const DEFAULT_DOC: BoardDocument = {
   id: 'doc_' + Date.now(),
@@ -178,6 +189,7 @@ export default function App() {
   const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState<boolean>(false);
   const [isFractionsModalOpen, setIsFractionsModalOpen] = useState<boolean>(false);
   const [isAutoShapeEnabled, setIsAutoShapeEnabled] = useState<boolean>(false);
+  const [isCleanPresentationMode, setIsCleanPresentationMode] = useState<boolean>(false);
 
   // Undo / Redo history stacks per page
   const [undoStack, setUndoStack] = useState<BoardElement[][]>([]);
@@ -753,49 +765,55 @@ export default function App() {
         handleNextPage();
       } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
         handlePrevPage();
+      } else if (e.key === 'Escape' && isCleanPresentationMode) {
+        setIsCleanPresentationMode(false);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo, handleNextPage, handlePrevPage]);
+  }, [handleUndo, handleRedo, handleNextPage, handlePrevPage, isCleanPresentationMode]);
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-900 text-slate-100 font-sans select-none">
-      {/* Top Math Whiteboard Navigation Bar */}
-      <TopBar
-        title={documentState.title}
-        currentPageIndex={activePageIndex}
-        totalPages={documentState.pages.length}
-        backgroundStyle={currentPage.backgroundStyle}
-        backgroundColor={currentPage.backgroundColor}
-        onSelectBackgroundColor={handleSelectBackgroundColor}
-        widgets={widgets}
-        canUndo={undoStack.length > 0}
-        canRedo={redoStack.length > 0}
-        isSplitScreen={isSplitScreen}
-        onToggleSplitScreen={() => setIsSplitScreen(prev => !prev)}
-        isGraphSheetOpen={isGraphSheetOpen}
-        onToggleGraphSheet={() => setIsGraphSheetOpen(prev => !prev)}
-        onOpenSolidsModal={() => setIsSolidsModalOpen(true)}
-        onOpenGeoGebraModal={() => setIsGeoGebraModalOpen(true)}
-        onOpenFractionsModal={() => setIsFractionsModalOpen(true)}
-        onPrevPage={handlePrevPage}
-        onNextPage={handleNextPage}
-        onAddPage={handleAddPage}
-        onDuplicatePage={handleDuplicatePage}
-        onDeletePage={handleDeletePage}
-        onSelectBackground={handleSelectBackground}
-        onUndo={handleUndo}
-        onRedo={handleRedo}
-        onClearPage={handleClearPage}
-        onToggleWidget={handleToggleWidget}
-        onOpenPdfModal={handleOpenPdfClick}
-        isPdfViewerOpen={isPdfViewerOpen && !isPdfViewerMinimized}
-        onOpenSaveModal={() => setIsSaveModalOpen(true)}
-        onToggleThumbnails={() => setShowThumbnails(!showThumbnails)}
-        showThumbnails={showThumbnails}
-      />
+      {/* Top Math Whiteboard Navigation Bar (Hidden in Clean Presentation Mode) */}
+      {!isCleanPresentationMode && (
+        <TopBar
+          title={documentState.title}
+          currentPageIndex={activePageIndex}
+          totalPages={documentState.pages.length}
+          backgroundStyle={currentPage.backgroundStyle}
+          backgroundColor={currentPage.backgroundColor}
+          onSelectBackgroundColor={handleSelectBackgroundColor}
+          widgets={widgets}
+          canUndo={undoStack.length > 0}
+          canRedo={redoStack.length > 0}
+          isSplitScreen={isSplitScreen}
+          onToggleSplitScreen={() => setIsSplitScreen(prev => !prev)}
+          isGraphSheetOpen={isGraphSheetOpen}
+          onToggleGraphSheet={() => setIsGraphSheetOpen(prev => !prev)}
+          onOpenSolidsModal={() => setIsSolidsModalOpen(true)}
+          onOpenGeoGebraModal={() => setIsGeoGebraModalOpen(true)}
+          onOpenFractionsModal={() => setIsFractionsModalOpen(true)}
+          onPrevPage={handlePrevPage}
+          onNextPage={handleNextPage}
+          onAddPage={handleAddPage}
+          onDuplicatePage={handleDuplicatePage}
+          onDeletePage={handleDeletePage}
+          onSelectBackground={handleSelectBackground}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          onClearPage={handleClearPage}
+          onToggleWidget={handleToggleWidget}
+          onOpenPdfModal={handleOpenPdfClick}
+          isPdfViewerOpen={isPdfViewerOpen && !isPdfViewerMinimized}
+          onOpenSaveModal={() => setIsSaveModalOpen(true)}
+          onToggleThumbnails={() => setShowThumbnails(!showThumbnails)}
+          showThumbnails={showThumbnails}
+          isCleanPresentationMode={isCleanPresentationMode}
+          onTogglePresentationMode={() => setIsCleanPresentationMode(prev => !prev)}
+        />
+      )}
 
       {/* Interactive Action Toast with Instant Undo */}
       {toast && (
@@ -1003,6 +1021,8 @@ export default function App() {
                 console.error('Failed to load sample PDF:', err);
               }
             }}
+            isCleanPresentationMode={isCleanPresentationMode}
+            onTogglePresentationMode={() => setIsCleanPresentationMode(prev => !prev)}
           />
         )}
 
@@ -1056,6 +1076,8 @@ export default function App() {
         onOpenFractionsModal={() => setIsFractionsModalOpen(true)}
         onOpenPdfModal={handleOpenPdfClick}
         onClearScreen={handleClearPage}
+        isToolsHidden={isCleanPresentationMode}
+        onToggleHideTools={() => setIsCleanPresentationMode(prev => !prev)}
         penSensitivity={penSensitivity}
         onChangePenSensitivity={handleUpdatePenSensitivity}
       />
@@ -1091,32 +1113,126 @@ export default function App() {
         onInsertGraphic={handleInsertTemplateGraphic}
       />
 
-      {/* Andhra Pradesh Mathematics Forum Official Logo & Title at Left Side Bottom Corner */}
-      <footer className="fixed bottom-3 left-3 sm:left-4 z-20 pointer-events-none flex items-center gap-2.5 px-3 py-1.5 bg-slate-900/95 backdrop-blur-md border border-slate-700/90 rounded-full shadow-2xl select-none">
-        <APMFLogo className="w-6 h-6 sm:w-7 sm:h-7 shrink-0" />
-        <div className="flex flex-col text-left leading-tight">
-          <span className="text-[11px] font-black text-white tracking-tight leading-tight whitespace-nowrap">
-            Andhra Pradesh Mathematics Forum
-          </span>
-          <span className="text-[9px] text-sky-400 font-semibold leading-none">
-            Math white board
-          </span>
-        </div>
-      </footer>
+      {/* Andhra Pradesh Mathematics Forum Official Logo & Title at Left Side Bottom Corner (Hidden in Clean Presentation Mode) */}
+      {!isCleanPresentationMode && (
+        <footer className="fixed bottom-3 left-3 sm:left-4 z-20 pointer-events-none flex items-center gap-2.5 px-3 py-1.5 bg-slate-900/95 backdrop-blur-md border border-slate-700/90 rounded-full shadow-2xl select-none">
+          <APMFLogo className="w-6 h-6 sm:w-7 sm:h-7 shrink-0" />
+          <div className="flex flex-col text-left leading-tight">
+            <span className="text-[11px] font-black text-white tracking-tight leading-tight whitespace-nowrap">
+              Andhra Pradesh Mathematics Forum
+            </span>
+            <span className="text-[9px] text-sky-400 font-semibold leading-none">
+              Math white board
+            </span>
+          </div>
+        </footer>
+      )}
 
-      {/* Right Side Bottom: Gangalapudi.Bhaskar Reddy, 8555079452 */}
-      <footer className="fixed bottom-3 right-3 sm:right-4 z-20 pointer-events-none flex items-center gap-2 px-3.5 py-1.5 bg-slate-900/95 backdrop-blur-md border border-slate-700/90 rounded-full shadow-2xl select-none">
-        <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-        <div className="flex items-center gap-1.5 text-xs">
-          <span className="font-bold text-white tracking-tight text-[11px] whitespace-nowrap">
-            Gangalapudi.Bhaskar Reddy
-          </span>
-          <span className="text-slate-500 text-[10px]">,</span>
-          <span className="font-mono text-emerald-400 font-semibold text-[11px] whitespace-nowrap">
-            8555079452
-          </span>
+      {/* Right Side Bottom: Gangalapudi.Bhaskar Reddy, 8555079452 (Hidden in Clean Presentation Mode) */}
+      {!isCleanPresentationMode && (
+        <footer className="fixed bottom-3 right-3 sm:right-4 z-20 pointer-events-none flex items-center gap-2 px-3.5 py-1.5 bg-slate-900/95 backdrop-blur-md border border-slate-700/90 rounded-full shadow-2xl select-none">
+          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+          <div className="flex items-center gap-1.5 text-xs">
+            <span className="font-bold text-white tracking-tight text-[11px] whitespace-nowrap">
+              Gangalapudi.Bhaskar Reddy
+            </span>
+            <span className="text-slate-500 text-[10px]">,</span>
+            <span className="font-mono text-emerald-400 font-semibold text-[11px] whitespace-nowrap">
+              8555079452
+            </span>
+          </div>
+        </footer>
+      )}
+
+      {/* Clean Presentation Mode: Floating Quick Teaching Controls Bar */}
+      {isCleanPresentationMode && (
+        <div className="fixed top-3 right-4 z-50 flex items-center gap-1.5 p-1.5 bg-slate-900/95 backdrop-blur-md rounded-2xl border-2 border-sky-500/80 shadow-2xl animate-in fade-in slide-in-from-top-3 duration-200">
+          {/* Slide Navigator */}
+          <div className="flex items-center bg-slate-800 rounded-xl p-0.5 border border-slate-700/80">
+            <button
+              disabled={activePageIndex <= 0}
+              onClick={handlePrevPage}
+              className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-slate-700 disabled:opacity-30 cursor-pointer"
+              title="Previous Slide (PageUp / Left)"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+            <span className="px-2 text-xs font-mono font-bold text-sky-300">
+              {activePageIndex + 1} / {documentState.pages.length}
+            </span>
+            <button
+              disabled={activePageIndex >= documentState.pages.length - 1}
+              onClick={handleNextPage}
+              className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-slate-700 disabled:opacity-30 cursor-pointer"
+              title="Next Slide (PageDown / Right)"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Undo / Redo */}
+          <div className="flex items-center bg-slate-800 rounded-xl p-0.5 border border-slate-700/80">
+            <button
+              disabled={undoStack.length === 0}
+              onClick={handleUndo}
+              className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-slate-700 disabled:opacity-30 cursor-pointer"
+              title="Undo (Ctrl+Z)"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+            <button
+              disabled={redoStack.length === 0}
+              onClick={handleRedo}
+              className="p-1.5 text-slate-300 hover:text-white rounded-lg hover:bg-slate-700 disabled:opacity-30 cursor-pointer"
+              title="Redo (Ctrl+Y)"
+            >
+              <RotateCw className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Quick Pen / Eraser toggle */}
+          <div className="flex items-center bg-slate-800 rounded-xl p-0.5 border border-slate-700/80">
+            <button
+              onClick={() => setActiveTool('pen')}
+              className={`p-1.5 rounded-lg transition cursor-pointer ${
+                activeTool === 'pen' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-300 hover:text-white hover:bg-slate-750'
+              }`}
+              title="Pen Tool (P)"
+            >
+              <PenTool className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setActiveTool('eraser')}
+              className={`p-1.5 rounded-lg transition cursor-pointer ${
+                activeTool === 'eraser' ? 'bg-sky-600 text-white shadow-xs' : 'text-slate-300 hover:text-white hover:bg-slate-750'
+              }`}
+              title="Eraser Tool (E)"
+            >
+              <Eraser className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Quick Clear Page */}
+          <button
+            onClick={handleClearPage}
+            className="p-1.5 rounded-xl bg-rose-950/70 hover:bg-rose-900 border border-rose-600/60 text-rose-300 hover:text-white transition cursor-pointer"
+            title="Clear Current Screen"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Exit Clean Presentation Mode / Show All Tools */}
+          <button
+            onClick={() => setIsCleanPresentationMode(false)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 active:scale-95 text-white text-xs font-bold transition shadow-md cursor-pointer ml-0.5"
+            title="Show All Tools & Top Bar (or press ESC)"
+          >
+            <Eye className="w-3.5 h-3.5" />
+            <span>Show Tools</span>
+            <span className="text-[10px] bg-sky-700/80 px-1 py-0.2 rounded font-mono">ESC</span>
+          </button>
         </div>
-      </footer>
+      )}
 
       {/* PDF & Cropped PDF Modal */}
       <PdfModal

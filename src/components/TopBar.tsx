@@ -69,6 +69,8 @@ interface TopBarProps {
   onOpenSaveModal: () => void;
   onToggleThumbnails: () => void;
   showThumbnails: boolean;
+  isCleanPresentationMode?: boolean;
+  onTogglePresentationMode?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -103,6 +105,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   onOpenSaveModal,
   onToggleThumbnails,
   showThumbnails,
+  isCleanPresentationMode = false,
+  onTogglePresentationMode,
 }) => {
   const [showBgMenu, setShowBgMenu] = useState(false);
   const [showToolsMenu, setShowToolsMenu] = useState(false);
@@ -161,7 +165,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           <span className="text-xs font-bold text-white truncate">{title}</span>
         </button>
 
-        <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 bg-sky-950/40 border border-sky-600/40 rounded-xl text-xs shrink-0 shadow-inner">
+        <div className="hidden 2xl:flex items-center gap-1.5 px-2.5 py-1 bg-sky-950/40 border border-sky-600/40 rounded-xl text-xs shrink-0 shadow-inner">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           <span className="font-bold text-sky-200">Math white board</span>
         </div>
@@ -646,11 +650,27 @@ export const TopBar: React.FC<TopBarProps> = ({
         {/* Fullscreen Button */}
         <button
           onClick={toggleFullscreen}
-          className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition"
+          className="p-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white border border-slate-700 transition"
           title="Toggle Fullscreen Mode (F11)"
         >
           {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
         </button>
+
+        {/* Clean Presentation Mode / Hide Tools Button */}
+        {onTogglePresentationMode && (
+          <button
+            onClick={onTogglePresentationMode}
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-bold transition shadow-xs cursor-pointer active:scale-95 ${
+              isCleanPresentationMode
+                ? 'bg-sky-600 border-sky-400 text-white shadow-sky-900/40'
+                : 'bg-slate-800 hover:bg-slate-750 text-sky-400 hover:text-white border-slate-700'
+            }`}
+            title="Clean Presentation Mode: Hide all toolbars for distraction-free full-screen teaching (Press ESC to restore)"
+          >
+            <EyeOff className="w-3.5 h-3.5 text-sky-400 group-hover:text-white" />
+            <span className="hidden xl:inline">Hide Tools</span>
+          </button>
+        )}
 
         {/* Divider */}
         <div className="h-7 w-px bg-slate-800 hidden sm:block mx-1" />

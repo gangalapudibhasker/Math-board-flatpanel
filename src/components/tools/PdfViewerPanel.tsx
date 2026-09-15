@@ -14,9 +14,76 @@ import {
   Upload, 
   Sparkles, 
   Check, 
-  Copy
-} from 'lucide-react';
+  Copy,
+  Eye,
+  EyeOff,
+  PenTool,
+  Highlighter,
+  Eraser,
+  Hand,
+  Trash2,
+  RotateCcw
 import { cropPdfRegion } from '../../utils/pdf';
+
+export type PdfToolType = 'pan' | 'pen' | 'highlighter' | 'eraser';
+
+export interface PdfStrokePoint {
+  nx: number;
+  ny: number;
+}
+
+export interface PdfStroke {
+  id: string;
+  points: PdfStrokePoint[];
+  color: string;
+  width: number;
+  tool: 'pen' | 'highlighter';
+}
+
+function drawSmoothPdfStroke(
+  ctx: CanvasRenderingContext2D,
+  points: PdfStrokePoint[],
+  color: string,
+  width: number,
+  isHighlight: boolean,
+  canvasW: number,
+  canvasH: number
+) {
+  if (points.length === 0) return;
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = isHighlight ? 0.45 : 1.0;
+  ctx.lineWidth = isHighlight ? width * 2.8 : width;
+
+  if (points.length === 1) {
+    const p = points[0];
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(p.nx * canvasW, p.ny * canvasH, Math.max(1, ctx.lineWidth / 2), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    return;
+  }
+
+  ctx.beginPath();
+  const p0 = points[0];
+  ctx.moveTo(p0.nx * canvasW, p0.ny * canvasH);
+
+  for (let i = 1; i < points.length - 1; i++) {
+    const current = points[i];
+    const next = points[i + 1];
+    const xc = ((current.nx + next.nx) / 2) * canvasW;
+    const yc = ((current.ny + next.ny) / 2) * canvasH;
+    ctx.quadraticCurveTo(current.nx * canvasW, current.ny * canvasH, xc, yc);
+  }
+
+  const last = points[points.length - 1];
+  ctx.lineTo(last.nx * canvasW, last.ny * canvasH);
+  ctx.stroke();
+  ctx.restore();
+}
 
 interface PdfViewerPanelProps {
   isOpen: boolean;
@@ -35,6 +102,8 @@ interface PdfViewerPanelProps {
   onInsertPageToBoard: (dataUrl: string, width: number, height: number, pageNum: number) => void;
   onLoadNewPdf: (file: File) => void;
   onLoadSampleLesson: () => void;
+  isCleanPresentationMode?: boolean;
+  onTogglePresentationMode?: () => void;
 }
 
 export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
@@ -54,14 +123,25 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
   onInsertPageToBoard,
   onLoadNewPdf,
   onLoadSampleLesson,
+  isCleanPresentationMode = false,
+  onTogglePresentationMode,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const annotationCanvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [zoomLevel, setZoomLevel] = useState<number>(1.25);
   const [isRendering, setIsRendering] = useState<boolean>(false);
   const [pageJumpVal, setPageJumpVal] = useState<string>(String(currentPage));
+
+  // PDF Annotation Tooling State
+  const [pdfTool, setPdfTool] = useState<PdfToolType>('pen');
+  const [penColor, setPenColor] = useState<string>('#ef4444');
+  const [penWidth, setPenWidth] = useState<number>(3);
+  const [pageAnnotations, setPageAnnotations] = useState<Record<number, PdfStroke[]>>({});
+  const [isDrawing, setIsDrawing] = useState<boolean>(false);
+  const activeStrokePointsRef = useRef<PdfStrokePoint[]>([]);
 
   // Snipping / Cropping state
   const [isSnipMode, setIsSnipMode] = useState<boolean>(false);
@@ -78,6 +158,35 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
   useEffect(() => {
     setPageJumpVal(String(currentPage));
   }, [currentPage]);
+
+  // Redraw all annotations on current page
+  const redrawAnnotations = useCallback(() => {
+    const canvas = annotationCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const strokes = pageAnnotations[currentPage] || [];
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    for (const stroke of strokes) {
+      drawSmoothPdfStroke(
+        ctx,
+        stroke.points,
+        stroke.color,
+        stroke.width * dpr,
+        stroke.tool === 'highlighter',
+        canvas.width,
+        canvas.height
+      );
+    }
+  }, [currentPage, pageAnnotations]);
+
+  useEffect(() => {
+    redrawAnnotations();
+  }, [pageAnnotations, redrawAnnotations]);
 
   // Render current PDF page onto canvas
   const renderCurrentPage = useCallback(async () => {
@@ -108,18 +217,167 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
         canvasContext: ctx,
         viewport,
       }).promise;
+
+      if (annotationCanvasRef.current) {
+        annotationCanvasRef.current.width = canvas.width;
+        annotationCanvasRef.current.height = canvas.height;
+        annotationCanvasRef.current.style.width = canvas.style.width;
+        annotationCanvasRef.current.style.height = canvas.style.height;
+      }
+      redrawAnnotations();
     } catch (err) {
       console.error('Error rendering PDF page in single viewer:', err);
     } finally {
       setIsRendering(false);
     }
-  }, [pdfDoc, currentPage, zoomLevel, totalPages]);
+  }, [pdfDoc, currentPage, zoomLevel, totalPages, redrawAnnotations]);
 
   useEffect(() => {
     if (isOpen && !isMinimized && pdfDoc) {
       renderCurrentPage();
     }
   }, [isOpen, isMinimized, pdfDoc, currentPage, zoomLevel, renderCurrentPage]);
+
+  // Drawing handlers for PDF annotation canvas
+  const handlePointerDownAnnotation = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (pdfTool === 'pan' || isSnipMode || !annotationCanvasRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    try {
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {}
+
+    const rect = annotationCanvasRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const nx = Math.max(0, Math.min(1, x / (rect.width || 1)));
+    const ny = Math.max(0, Math.min(1, y / (rect.height || 1)));
+
+    if (pdfTool === 'eraser') {
+      eraseStrokesNear(nx, ny, rect.width, rect.height);
+      setIsDrawing(true);
+      return;
+    }
+
+    setIsDrawing(true);
+    activeStrokePointsRef.current = [{ nx, ny }];
+
+    const ctx = annotationCanvasRef.current.getContext('2d');
+    if (ctx) {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.fillStyle = penColor;
+      ctx.globalAlpha = pdfTool === 'highlighter' ? 0.45 : 1.0;
+      const r = ((pdfTool === 'highlighter' ? penWidth * 2.8 : penWidth) * dpr) / 2;
+      ctx.beginPath();
+      ctx.arc(nx * annotationCanvasRef.current.width, ny * annotationCanvasRef.current.height, Math.max(1, r), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  };
+
+  const handlePointerMoveAnnotation = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isDrawing || pdfTool === 'pan' || isSnipMode || !annotationCanvasRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const rect = annotationCanvasRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const nx = Math.max(0, Math.min(1, x / (rect.width || 1)));
+    const ny = Math.max(0, Math.min(1, y / (rect.height || 1)));
+
+    if (pdfTool === 'eraser') {
+      eraseStrokesNear(nx, ny, rect.width, rect.height);
+      return;
+    }
+
+    const pts = activeStrokePointsRef.current;
+    pts.push({ nx, ny });
+
+    const ctx = annotationCanvasRef.current.getContext('2d');
+    if (ctx && pts.length >= 2) {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const canvasW = annotationCanvasRef.current.width;
+      const canvasH = annotationCanvasRef.current.height;
+      const pPrev = pts[pts.length - 2];
+      const pCurr = pts[pts.length - 1];
+
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = penColor;
+      ctx.globalAlpha = pdfTool === 'highlighter' ? 0.45 : 1.0;
+      ctx.lineWidth = (pdfTool === 'highlighter' ? penWidth * 2.8 : penWidth) * dpr;
+
+      ctx.beginPath();
+      ctx.moveTo(pPrev.nx * canvasW, pPrev.ny * canvasH);
+      ctx.lineTo(pCurr.nx * canvasW, pCurr.ny * canvasH);
+      ctx.stroke();
+      ctx.restore();
+    }
+  };
+
+  const handlePointerUpAnnotation = () => {
+    if (!isDrawing) return;
+    setIsDrawing(false);
+
+    if (pdfTool === 'eraser') return;
+
+    const pts = activeStrokePointsRef.current;
+    if (pts.length > 0) {
+      const newStroke: PdfStroke = {
+        id: 'stroke_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        points: [...pts],
+        color: penColor,
+        width: penWidth,
+        tool: pdfTool as 'pen' | 'highlighter',
+      };
+
+      setPageAnnotations(prev => ({
+        ...prev,
+        [currentPage]: [...(prev[currentPage] || []), newStroke],
+      }));
+    }
+
+    activeStrokePointsRef.current = [];
+  };
+
+  const eraseStrokesNear = (nx: number, ny: number, rectW: number, rectH: number) => {
+    const thresholdPx = 20;
+    setPageAnnotations(prev => {
+      const currentStrokes = prev[currentPage] || [];
+      const remaining = currentStrokes.filter(stroke => {
+        return !stroke.points.some(pt => {
+          const dx = (pt.nx - nx) * rectW;
+          const dy = (pt.ny - ny) * rectH;
+          return Math.sqrt(dx * dx + dy * dy) < thresholdPx;
+        });
+      });
+      if (remaining.length === currentStrokes.length) return prev;
+      return { ...prev, [currentPage]: remaining };
+    });
+  };
+
+  const handleUndoAnnotation = () => {
+    setPageAnnotations(prev => {
+      const currentStrokes = prev[currentPage] || [];
+      if (currentStrokes.length === 0) return prev;
+      return {
+        ...prev,
+        [currentPage]: currentStrokes.slice(0, -1),
+      };
+    });
+  };
+
+  const handleClearPageAnnotations = () => {
+    setPageAnnotations(prev => ({
+      ...prev,
+      [currentPage]: [],
+    }));
+  };
 
   // Keyboard navigation when panel is open
   useEffect(() => {
@@ -270,6 +528,11 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
       ctx.fillRect(0, 0, cropW, cropH);
       ctx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
+      // Composite handwritten annotations onto snippet
+      if (annotationCanvasRef.current) {
+        ctx.drawImage(annotationCanvasRef.current, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+      }
+
       const dataUrl = targetCanvas.toDataURL('image/png');
       onInsertSnippetToBoard(dataUrl, cropW, cropH, currentPage);
 
@@ -280,10 +543,20 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
     }
   };
 
-  // Stamp full page onto active whiteboard slide
+  // Stamp full page onto active whiteboard slide (with annotations)
   const handleStampPage = () => {
     if (!canvasRef.current) return;
-    const dataUrl = canvasRef.current.toDataURL('image/png');
+    const canvas = canvasRef.current;
+    const compCanvas = document.createElement('canvas');
+    compCanvas.width = canvas.width;
+    compCanvas.height = canvas.height;
+    const ctx = compCanvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(canvas, 0, 0);
+    if (annotationCanvasRef.current) {
+      ctx.drawImage(annotationCanvasRef.current, 0, 0);
+    }
+    const dataUrl = compCanvas.toDataURL('image/png');
     onInsertPageToBoard(dataUrl, renderDimensions.width, renderDimensions.height, currentPage);
   };
 
@@ -397,6 +670,21 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
           >
             <ArrowLeftRight className="w-3.5 h-3.5" />
           </button>
+
+          {/* Hide Tools / Clean Presentation Mode Toggle */}
+          {onTogglePresentationMode && (
+            <button
+              onClick={onTogglePresentationMode}
+              className={`p-1.5 rounded-lg border transition cursor-pointer ${
+                isCleanPresentationMode
+                  ? 'bg-sky-600 border-sky-400 text-white shadow-xs'
+                  : 'hover:bg-slate-800 border-transparent text-slate-300 hover:text-white'
+              }`}
+              title={isCleanPresentationMode ? "Show all tools (Exit clean mode)" : "Hide all tools for clean full-screen worksheet view"}
+            >
+              {isCleanPresentationMode ? <Eye className="w-3.5 h-3.5 text-sky-200" /> : <EyeOff className="w-3.5 h-3.5" />}
+            </button>
+          )}
 
           {/* Minimize Button */}
           <button
@@ -553,6 +841,151 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
         </div>
       </div>
 
+      {/* PDF Drawing & Explaining Toolbar */}
+      <div className="h-10 bg-slate-900 border-b border-slate-750/90 px-3 flex items-center justify-between gap-2 shrink-0 text-xs shadow-inner select-none">
+        {/* Left: Tool Modes (Scroll vs Pen vs Highlighter vs Eraser) */}
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => {
+              setPdfTool('pan');
+              setIsSnipMode(false);
+            }}
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg border transition cursor-pointer text-xs font-semibold ${
+              pdfTool === 'pan' && !isSnipMode
+                ? 'bg-sky-600 border-sky-400 text-white shadow-xs'
+                : 'bg-slate-850 border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800'
+            }`}
+            title="Pan / Scroll Mode (Scroll or swipe through PDF without drawing)"
+          >
+            <Hand className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Scroll</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setPdfTool('pen');
+              setIsSnipMode(false);
+            }}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border transition cursor-pointer text-xs font-bold ${
+              pdfTool === 'pen' && !isSnipMode
+                ? 'bg-rose-600 border-rose-400 text-white shadow-xs ring-1 ring-white/20'
+                : 'bg-slate-850 border-slate-700 text-rose-300 hover:text-white hover:bg-slate-800'
+            }`}
+            title="Pen Tool (Write equations, draw solutions, and explain directly on PDF with stylus)"
+          >
+            <PenTool className="w-3.5 h-3.5" />
+            <span>Pen</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setPdfTool('highlighter');
+              setIsSnipMode(false);
+            }}
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg border transition cursor-pointer text-xs font-bold ${
+              pdfTool === 'highlighter' && !isSnipMode
+                ? 'bg-amber-500 border-amber-300 text-slate-950 shadow-xs ring-1 ring-white/20'
+                : 'bg-slate-850 border-slate-700 text-amber-300 hover:text-white hover:bg-slate-800'
+            }`}
+            title="Highlighter Tool (Highlight terms, numbers and questions on PDF)"
+          >
+            <Highlighter className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Highlight</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setPdfTool('eraser');
+              setIsSnipMode(false);
+            }}
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg border transition cursor-pointer text-xs font-semibold ${
+              pdfTool === 'eraser' && !isSnipMode
+                ? 'bg-rose-700 border-rose-400 text-white shadow-xs'
+                : 'bg-slate-850 border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800'
+            }`}
+            title="Eraser Tool (Touch or drag over notes to erase)"
+          >
+            <Eraser className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Eraser</span>
+          </button>
+        </div>
+
+        {/* Middle: Color Swatches & Stroke Width */}
+        {(pdfTool === 'pen' || pdfTool === 'highlighter') && (
+          <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1 bg-slate-850 px-1.5 py-0.5 rounded-lg border border-slate-750">
+              {[
+                { name: 'Red', color: '#ef4444' },
+                { name: 'Blue', color: '#2563eb' },
+                { name: 'Green', color: '#10b981' },
+                { name: 'Yellow', color: '#eab308' },
+                { name: 'Purple', color: '#a855f7' },
+                { name: 'Dark', color: '#0f172a' },
+              ].map(c => (
+                <button
+                  key={c.color}
+                  type="button"
+                  onClick={() => setPenColor(c.color)}
+                  className={`w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full border transition cursor-pointer ${
+                    penColor === c.color ? 'border-white ring-2 ring-sky-400 scale-110' : 'border-black/30 hover:scale-105'
+                  }`}
+                  style={{ backgroundColor: c.color }}
+                  title={`${c.name} Pen`}
+                />
+              ))}
+            </div>
+
+            <div className="hidden sm:flex items-center gap-0.5 bg-slate-850 px-1 py-0.5 rounded-lg border border-slate-750">
+              {[
+                { label: 'Fine', width: 2 },
+                { label: 'Med', width: 4 },
+                { label: 'Thick', width: 7 },
+              ].map(w => (
+                <button
+                  key={w.width}
+                  type="button"
+                  onClick={() => setPenWidth(w.width)}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition cursor-pointer ${
+                    penWidth === w.width ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'
+                  }`}
+                  title={`${w.label} Pen Thickness`}
+                >
+                  {w.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Right: Undo & Clear Annotations on Page */}
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={handleUndoAnnotation}
+            disabled={!pageAnnotations[currentPage] || pageAnnotations[currentPage].length === 0}
+            className="p-1 rounded-lg bg-slate-850 border border-slate-750 text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-30 disabled:hover:bg-slate-850 transition cursor-pointer"
+            title="Undo last writing stroke on PDF"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            type="button"
+            onClick={handleClearPageAnnotations}
+            disabled={!pageAnnotations[currentPage] || pageAnnotations[currentPage].length === 0}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-850 hover:bg-rose-950/70 border border-slate-750 hover:border-rose-700/60 text-slate-400 hover:text-rose-200 text-xs font-semibold disabled:opacity-30 transition cursor-pointer"
+            title="Clear all drawings and notes on this PDF page"
+          >
+            <Trash2 className="w-3 h-3 text-rose-400" />
+            <span className="hidden sm:inline text-[11px]">Clear Notes</span>
+          </button>
+        </div>
+      </div>
+
       {/* Main PDF Page Display Area */}
       <div className="flex-1 relative overflow-auto bg-slate-950 flex items-center justify-center p-3">
         {/* If no PDF is loaded */}
@@ -586,7 +1019,7 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
             </div>
           </div>
         ) : (
-          /* PDF Canvas with Snipping Overlay */
+          /* PDF Canvas with Snipping & Annotation Overlays */
           <div 
             className="relative shadow-2xl rounded-sm bg-white select-none inline-block overflow-visible"
             style={{ 
@@ -604,9 +1037,23 @@ export const PdfViewerPanel: React.FC<PdfViewerPanelProps> = ({
               </div>
             )}
 
+            {/* Base PDF Document Canvas */}
             <canvas
               ref={canvasRef}
               className="bg-white shadow-xl rounded-sm block pointer-events-none w-full h-full"
+            />
+
+            {/* Interactive Annotation Drawing Layer Canvas */}
+            <canvas
+              ref={annotationCanvasRef}
+              className={`absolute inset-0 z-10 w-full h-full ${
+                pdfTool === 'pan' || isSnipMode ? 'pointer-events-none' : 'cursor-crosshair'
+              }`}
+              style={{ touchAction: pdfTool === 'pan' || isSnipMode ? 'auto' : 'none' }}
+              onPointerDown={handlePointerDownAnnotation}
+              onPointerMove={handlePointerMoveAnnotation}
+              onPointerUp={handlePointerUpAnnotation}
+              onPointerCancel={handlePointerUpAnnotation}
             />
 
             {/* Snipping Overlay Interaction Layer */}
