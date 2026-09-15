@@ -35,7 +35,6 @@ import {
 } from 'lucide-react';
 import { BackgroundStyle, TeachingWidgetsState } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
-import { APMFLogo } from './APMFLogo';
 
 interface TopBarProps {
   title: string;

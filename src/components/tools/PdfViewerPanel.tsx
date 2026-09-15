@@ -23,7 +23,7 @@ import {
   Hand,
   Trash2,
   RotateCcw
-import { cropPdfRegion } from '../../utils/pdf';
+} from 'lucide-react';
 
 export type PdfToolType = 'pan' | 'pen' | 'highlighter' | 'eraser';
 
